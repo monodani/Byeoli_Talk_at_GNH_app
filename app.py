@@ -36,6 +36,8 @@ HUMAN:
 """)
 
 # 4. 스트리밍 핸들러
+import time
+
 class StreamHandler(BaseCallbackHandler):
     def __init__(self):
         self.text_area = st.empty()
@@ -44,6 +46,7 @@ class StreamHandler(BaseCallbackHandler):
     def on_llm_new_token(self, token: str, **kwargs):
         self.full_text += token
         self.text_area.markdown(self.full_text)
+        time.sleep(0.03)  # 30ms 딜레이 추가 (값은 조절 가능)
 
 # 5. 대화 내역 초기화
 if 'chat_history' not in st.session_state:
