@@ -35,9 +35,11 @@ HUMAN:
 #Answer:
 """)
 
-# 4. 대화 내역(딕셔너리 리스트)
+# 4. 대화 내역(딕셔너리 리스트)와 각 메시지의 출력용 st.empty() 리스트
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "chat_placeholders" not in st.session_state:
+    st.session_state.chat_placeholders = []
 
 st.title("📊 통계가이드 기반 민원 챗봇")
 
@@ -47,61 +49,67 @@ def format_docs(docs):
         for doc in docs
     ])
 
-# 5. 답변 스트리밍 핸들러 (맨 아래에서만 출력)
+# 5. 답변 스트리밍 핸들러 (챗봇 답변에만 연결)
 class StreamHandler(BaseCallbackHandler):
+    def __init__(self, placeholder):
+        self.placeholder = placeholder
+        self.full_text = ""
     def on_llm_new_token(self, token: str, **kwargs):
-        st.session_state.chat_history[-1]["message"] += token
-        rerun_chat_display()
+        self.full_text += token
+        self.placeholder.markdown(self.full_text)
 
-# 6. 대화 내역 렌더링 (항상 최신 메시지가 아래)
-def rerun_chat_display():
-    st.empty()
-    for idx, chat in enumerate(st.session_state.chat_history):
-        with st.chat_message(chat["role"]):
-            st.markdown(chat["message"])
-            if idx == len(st.session_state.chat_history) - 1:
-                st.markdown('<div id="bottom"></div>', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <script>
-        var elem = document.getElementById('bottom');
-        if (elem) elem.scrollIntoView({behavior: "smooth", block: "end"});
-        </script>
-        """,
-        unsafe_allow_html=True
-    )
-
-# 7. 사용자 입력 처리
+# 6. 사용자 입력 처리
 user_input = st.chat_input("통계가이드에서 궁금한 점을 질문하세요:")
 
 if user_input:
-    # 1) 사용자의 질문 추가
+    # 1) 사용자 메시지(민원인) 추가 및 출력 위치 생성
     st.session_state.chat_history.append({"role": "민원인", "message": user_input})
-    rerun_chat_display()
-
-    # 2) context 추출
+    st.session_state.chat_placeholders.append(st.empty())
+    with st.session_state.chat_placeholders[-1]:
+        with st.chat_message("민원인"):
+            st.markdown(user_input)
+    
+    # 2) context 추출 및 프롬프트 생성
     retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
     search_results = retriever.invoke(user_input)
     context = format_docs(search_results)
-    
-    # 3) 프롬프트 적용
     formatted_prompt = prompt.format(question=user_input, context=context)
     
-    # 4) 챗봇 답변 자리(빈 문자열) 추가
+    # 3) 챗봇 답변 자리(빈 문자열) 추가 및 출력 위치 생성 (맨 아래에서만 스트리밍)
     st.session_state.chat_history.append({"role": "챗봇", "message": ""})
+    st.session_state.chat_placeholders.append(st.empty())
+    with st.session_state.chat_placeholders[-1]:
+        with st.chat_message("챗봇"):
+            placeholder = st.empty()
+            handler = StreamHandler(placeholder)
+            llm = ChatOpenAI(
+                streaming=True,
+                callbacks=[handler],
+                openai_api_key=openai_api_key,
+                model_name="gpt-4o-mini",
+                temperature=0.4,
+            )
+            response = llm.predict(formatted_prompt)
+            st.session_state.chat_history[-1]["message"] = response
+            placeholder.markdown(response)
 
-    # 5) 스트리밍으로 마지막 메시지를 실시간 갱신
-    handler = StreamHandler()
-    llm = ChatOpenAI(
-        streaming=True,
-        callbacks=[handler],
-        openai_api_key=openai_api_key,
-        model_name="gpt-4o-mini",
-        temperature=0.4,
-    )
-    response = llm.predict(formatted_prompt)
-    st.session_state.chat_history[-1]["message"] = response
-    rerun_chat_display()
+# 7. 새로고침/최초 로딩시 기존 대화 내역 순차 출력
+for idx, chat in enumerate(st.session_state.chat_history):
+    # 만약 메시지 수보다 placeholder가 부족하다면 생성
+    if idx >= len(st.session_state.chat_placeholders):
+        st.session_state.chat_placeholders.append(st.empty())
+    with st.session_state.chat_placeholders[idx]:
+        with st.chat_message(chat["role"]):
+            st.markdown(chat["message"])
 
-else:
-    rerun_chat_display()
+# 8. 최신 메시지로 자동 스크롤
+st.markdown(
+    """
+    <script>
+    var elem = document.getElementById('bottom');
+    if (elem) elem.scrollIntoView({behavior: "smooth", block: "end"});
+    </script>
+    <div id="bottom"></div>
+    """,
+    unsafe_allow_html=True
+)
