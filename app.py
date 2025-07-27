@@ -36,8 +36,6 @@ HUMAN:
 """)
 
 # 4. 스트리밍 핸들러
-import time
-
 class StreamHandler(BaseCallbackHandler):
     def __init__(self):
         self.text_area = st.empty()
@@ -46,7 +44,6 @@ class StreamHandler(BaseCallbackHandler):
     def on_llm_new_token(self, token: str, **kwargs):
         self.full_text += token
         self.text_area.markdown(self.full_text)
-        time.sleep(0.03)  # 30ms 딜레이 추가 (값은 조절 가능)
 
 # 5. 대화 내역 초기화
 if 'chat_history' not in st.session_state:
@@ -87,7 +84,23 @@ if user_input:
     response = llm.predict(formatted_prompt)
     st.session_state.chat_history.append(("챗봇", response))
 
-# 8. 대화 내역 출력
-for role, msg in st.session_state.chat_history:
+# 8. 대화 내역 출력 (최신 대화가 아래에 보이도록, 스크롤 자동 하단)
+# 1) 전체 대화 내역을 for문으로 위에서 아래로 출력
+for idx, (role, msg) in enumerate(st.session_state.chat_history):
+    # st.chat_message는 Streamlit 1.25 이상에서 지원
     with st.chat_message(role):
         st.markdown(msg)
+        # 답변이 최신(마지막)인 경우, 여기에 자동 스크롤 anchor 삽입
+        if idx == len(st.session_state.chat_history) - 1:
+            st.markdown('<div id="bottom"></div>', unsafe_allow_html=True)
+
+# 2) 답변 생성/갱신 시 자동으로 아래로 스크롤
+st.markdown(
+    """
+    <script>
+    var elem = document.getElementById('bottom');
+    if (elem) elem.scrollIntoView({behavior: "smooth", block: "end"});
+    </script>
+    """,
+    unsafe_allow_html=True
+)
