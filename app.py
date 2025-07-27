@@ -78,8 +78,8 @@ if user_input:
         streaming=True,
         callbacks=[handler],
         openai_api_key=openai_api_key,
-        model_name="gpt-4o",
-        temperature=0.0,
+        model_name="gpt-4o-mini",
+        temperature=0.4,
     )
     response = llm.predict(formatted_prompt)
     st.session_state.chat_history.append(("챗봇", response))
