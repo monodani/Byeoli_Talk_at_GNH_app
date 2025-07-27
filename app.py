@@ -1,4 +1,5 @@
 import streamlit as st
+
 from langchain.chat_models import ChatOpenAI
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.prompts import PromptTemplate
@@ -34,8 +35,8 @@ HUMAN:
 #Answer:
 """)
 
-# 4. 챗지피티 스타일: 채팅내역은 리스트(딕셔너리)로 관리
-if 'chat_history' not in st.session_state:
+# 4. 대화 내역(딕셔너리 리스트)
+if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 st.title("📊 통계가이드 기반 민원 챗봇")
@@ -46,17 +47,15 @@ def format_docs(docs):
         for doc in docs
     ])
 
-# 5. 답변 실시간 스트리밍을 위한 핸들러 (최신 답변만 하단에 스트리밍)
+# 5. 답변 스트리밍 핸들러 (맨 아래에서만 출력)
 class StreamHandler(BaseCallbackHandler):
-    def __init__(self):
-        self.response_key = None
-
     def on_llm_new_token(self, token: str, **kwargs):
-        st.session_state.chat_history[self.response_key]["message"] += token
+        st.session_state.chat_history[-1]["message"] += token
         rerun_chat_display()
 
+# 6. 대화 내역 렌더링 (항상 최신 메시지가 아래)
 def rerun_chat_display():
-    st.empty()  # 이전 출력 비우기
+    st.empty()
     for idx, chat in enumerate(st.session_state.chat_history):
         with st.chat_message(chat["role"]):
             st.markdown(chat["message"])
@@ -72,29 +71,27 @@ def rerun_chat_display():
         unsafe_allow_html=True
     )
 
-# 6. 사용자 입력
+# 7. 사용자 입력 처리
 user_input = st.chat_input("통계가이드에서 궁금한 점을 질문하세요:")
 
 if user_input:
-    # (1) 유저 입력 추가
+    # 1) 사용자의 질문 추가
     st.session_state.chat_history.append({"role": "민원인", "message": user_input})
     rerun_chat_display()
 
-    # (2) PDF에서 context 추출
-    retriever = vectorstore.as_retriever(search_kwargs={"k":5})
+    # 2) context 추출
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
     search_results = retriever.invoke(user_input)
     context = format_docs(search_results)
     
-    # (3) 프롬프트 적용
+    # 3) 프롬프트 적용
     formatted_prompt = prompt.format(question=user_input, context=context)
     
-    # (4) 챗봇 답변(빈 문자열) 추가, 답변 스트리밍을 여기서 시작
-    bot_key = len(st.session_state.chat_history)
+    # 4) 챗봇 답변 자리(빈 문자열) 추가
     st.session_state.chat_history.append({"role": "챗봇", "message": ""})
 
+    # 5) 스트리밍으로 마지막 메시지를 실시간 갱신
     handler = StreamHandler()
-    handler.response_key = bot_key  # 최신 답변 인덱스
-
     llm = ChatOpenAI(
         streaming=True,
         callbacks=[handler],
