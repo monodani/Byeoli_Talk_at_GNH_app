@@ -1,11 +1,12 @@
 import streamlit as st
-
+import time
 from langchain.chat_models import ChatOpenAI
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.prompts import PromptTemplate
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import OpenAIEmbeddings
+from langchain.chains import RetrievalQA
 
 # 1. API KEY 가져오기
 openai_api_key = st.secrets["OPENAI_API_KEY"]
@@ -35,13 +36,25 @@ HUMAN:
 #Answer:
 """)
 
-# 4. 대화 내역(딕셔너리 리스트)와 각 메시지의 출력용 st.empty() 리스트
-if "chat_history" not in st.session_state:
+# 4. 스트리밍 핸들러
+class StreamHandler(BaseCallbackHandler):
+    def __init__(self):
+        self.text_area = st.empty()
+        self.full_text = ""
+
+    def on_llm_new_token(self, token: str, **kwargs):
+        self.full_text += token
+        self.text_area.markdown(self.full_text)
+
+
+5. 대화 내역 초기화
+if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
-if "chat_placeholders" not in st.session_state:
-    st.session_state.chat_placeholders = []
 
 st.title("📊 통계가이드 기반 민원 챗봇")
+
+# 6. 사용자 입력
+user_input = st.chat_input("통계가이드에서 궁금한 점을 질문하세요:")
 
 def format_docs(docs):
     return "\n".join([
@@ -49,67 +62,47 @@ def format_docs(docs):
         for doc in docs
     ])
 
-# 5. 답변 스트리밍 핸들러 (챗봇 답변에만 연결)
-class StreamHandler(BaseCallbackHandler):
-    def __init__(self, placeholder):
-        self.placeholder = placeholder
-        self.full_text = ""
-    def on_llm_new_token(self, token: str, **kwargs):
-        self.full_text += token
-        self.placeholder.markdown(self.full_text)
-
-# 6. 사용자 입력 처리
-user_input = st.chat_input("통계가이드에서 궁금한 점을 질문하세요:")
-
+# 7. 입력시 처리
 if user_input:
-    # 1) 사용자 메시지(민원인) 추가 및 출력 위치 생성
-    st.session_state.chat_history.append({"role": "민원인", "message": user_input})
-    st.session_state.chat_placeholders.append(st.empty())
-    with st.session_state.chat_placeholders[-1]:
-        with st.chat_message("민원인"):
-            st.markdown(user_input)
-    
-    # 2) context 추출 및 프롬프트 생성
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+    st.session_state.chat_history.append(("민원인", user_input))
+
+    # (1) PDF에서 context 추출
+    retriever = vectorstore.as_retriever(search_kwargs={"k":5})
     search_results = retriever.invoke(user_input)
     context = format_docs(search_results)
+    
+    # (2) 프롬프트 적용
     formatted_prompt = prompt.format(question=user_input, context=context)
     
-    # 3) 챗봇 답변 자리(빈 문자열) 추가 및 출력 위치 생성 (맨 아래에서만 스트리밍)
-    st.session_state.chat_history.append({"role": "챗봇", "message": ""})
-    st.session_state.chat_placeholders.append(st.empty())
-    with st.session_state.chat_placeholders[-1]:
-        with st.chat_message("챗봇"):
-            placeholder = st.empty()
-            handler = StreamHandler(placeholder)
-            llm = ChatOpenAI(
-                streaming=True,
-                callbacks=[handler],
-                openai_api_key=openai_api_key,
-                model_name="gpt-4o-mini",
-                temperature=0.4,
-            )
-            response = llm.predict(formatted_prompt)
-            st.session_state.chat_history[-1]["message"] = response
-            placeholder.markdown(response)
+    # (3) 답변 생성 (스트리밍)
+    handler = StreamHandler()
+    llm = ChatOpenAI(
+        streaming=True,
+        callbacks=[handler],
+        openai_api_key=openai_api_key,
+        model_name="gpt-4o-mini",
+        temperature=0.4,
+    )
+    response = llm.predict(formatted_prompt)
+    st.session_state.chat_history.append(("챗봇", response))
 
-# 7. 새로고침/최초 로딩시 기존 대화 내역 순차 출력
-for idx, chat in enumerate(st.session_state.chat_history):
-    # 만약 메시지 수보다 placeholder가 부족하다면 생성
-    if idx >= len(st.session_state.chat_placeholders):
-        st.session_state.chat_placeholders.append(st.empty())
-    with st.session_state.chat_placeholders[idx]:
-        with st.chat_message(chat["role"]):
-            st.markdown(chat["message"])
+# 8. 대화 내역 출력 (최신 대화가 아래에 보이도록, 스크롤 자동 하단)
+# 1) 전체 대화 내역을 for문으로 위에서 아래로 출력
+for idx, (role, msg) in enumerate(st.session_state.chat_history):
+    # st.chat_message는 Streamlit 1.25 이상에서 지원
+    with st.chat_message(role):
+        st.markdown(msg)
+        # 답변이 최신(마지막)인 경우, 여기에 자동 스크롤 anchor 삽입
+        if idx == len(st.session_state.chat_history) - 1:
+            st.markdown('<div id="bottom"></div>', unsafe_allow_html=True)
 
-# 8. 최신 메시지로 자동 스크롤
+# 2) 답변 생성/갱신 시 자동으로 아래로 스크롤
 st.markdown(
     """
     <script>
     var elem = document.getElementById('bottom');
     if (elem) elem.scrollIntoView({behavior: "smooth", block: "end"});
     </script>
-    <div id="bottom"></div>
     """,
     unsafe_allow_html=True
 )
