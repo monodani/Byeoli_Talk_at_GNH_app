@@ -45,9 +45,9 @@ class StreamHandler(BaseCallbackHandler):
         self.full_text += token
         self.text_area.markdown(self.full_text)
 
-# 5. 대화 내역 초기화
-# if 'chat_history' not in st.session_state:
-#     st.session_state.chat_history = []
+5. 대화 내역 초기화
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
 
 st.title("📊 통계가이드 기반 민원 챗봇")
 
