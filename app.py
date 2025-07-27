@@ -46,13 +46,13 @@ class StreamHandler(BaseCallbackHandler):
         self.text_area.markdown(self.full_text)
 
 # 5. 대화 내역 초기화
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
+# if 'chat_history' not in st.session_state:
+#     st.session_state.chat_history = []
 
 st.title("📊 통계가이드 기반 민원 챗봇")
 
 # 6. 사용자 입력
-user_input = st.chat_input("통계가이드.pdf에서 궁금한 점을 질문하세요:")
+user_input = st.chat_input("통계가이드에서 궁금한 점을 질문하세요:")
 
 def format_docs(docs):
     return "\n".join([
