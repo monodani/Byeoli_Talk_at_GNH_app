@@ -5,7 +5,6 @@ from langchain.prompts import PromptTemplate
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import OpenAIEmbeddings
-from langchain.chains import RetrievalQA
 
 # 1. API KEY 가져오기
 openai_api_key = st.secrets["OPENAI_API_KEY"]
@@ -35,27 +34,26 @@ HUMAN:
 #Answer:
 """)
 
-# 4. 스트리밍 핸들러
+# 4. 스트리밍 핸들러 정의
 class StreamHandler(BaseCallbackHandler):
     def __init__(self):
         self.generated_text = ""
 
     def on_llm_new_token(self, token: str, **kwargs):
-        self.generated_text += token  # 출력 없이 누적만
-
+        self.generated_text += token  # 누적만, 즉시 출력 없음
 
 # 5. 대화 내역 초기화
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
+# 6. 상단 로고 및 타이틀 출력
 col1, col2 = st.columns([1, 6])
 with col1:
-    st.image("byeory.png", width=60)   # ✅ 로고 삽입
+    st.image("byeory.png", width=60)   # ✅ 로고 파일 이름 확인 필요
 with col2:
-    st.markdown("### 경상남도인재개발원 큐레이터")  # ✅ 마크다운으로 타이틀 표현
+    st.markdown("### 경상남도인재개발원 큐레이터")
 
-
-# 6. 사용자 입력
+# 7. 사용자 입력 처리
 user_input = st.chat_input("통계가이드에서 궁금한 점을 질문하세요:")
 
 def format_docs(docs):
@@ -64,19 +62,19 @@ def format_docs(docs):
         for doc in docs
     ])
 
-# 7. 입력시 처리
 if user_input:
+    # (1) 사용자 질문 저장
     st.session_state.chat_history.append(("민원인", user_input))
 
-    # (1) PDF에서 context 추출
-    retriever = vectorstore.as_retriever(search_kwargs={"k":5})
+    # (2) 벡터스토어에서 관련 문서 검색
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
     search_results = retriever.invoke(user_input)
     context = format_docs(search_results)
-    
-    # (2) 프롬프트 적용
+
+    # (3) 프롬프트 구성
     formatted_prompt = prompt.format(question=user_input, context=context)
-    
-    # 스트리밍 핸들러 설정
+
+    # (4) 스트리밍 핸들러 + LLM 설정
     handler = StreamHandler()
     llm = ChatOpenAI(
         streaming=True,
@@ -84,19 +82,18 @@ if user_input:
         openai_api_key=openai_api_key,
         model_name="gpt-4o",
         temperature=0.3,
-)
+    )
 
-# 말풍선 안에서 스트리밍 출력
-with st.chat_message("assistant"):
-    message_placeholder = st.empty()
-    llm.predict(formatted_prompt)
-    message_placeholder.markdown(handler.generated_text)
+    # (5) 챗봇 답변 실시간 출력 (하단 말풍선에서)
+    with st.chat_message("assistant"):
+        message_placeholder = st.empty()
+        llm.predict(formatted_prompt)
+        message_placeholder.markdown(handler.generated_text)
 
-# 최종 응답 저장
-st.session_state.chat_history.append(("챗봇", handler.generated_text))
+    # (6) 답변 대화 내역에 추가
+    st.session_state.chat_history.append(("챗봇", handler.generated_text))
 
-
-# 8. 대화 내역 출력 (말풍선 스타일 개선)
+# 8. 대화 내역 전체 출력 (말풍선 스타일)
 for role, msg in st.session_state.chat_history:
     with st.chat_message("user" if role == "민원인" else "assistant"):
         st.markdown(msg)
