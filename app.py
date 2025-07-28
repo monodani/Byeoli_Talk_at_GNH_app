@@ -54,7 +54,7 @@ col1, col2 = st.columns([1, 6])
 with col1:
     st.image("byeory.png", width=60)  # 로고 이미지 파일
 with col2:
-    st.markdown("### 벼리봇@경남인재개발원, 무엇이든 물으세요!")
+    st.markdown("### 벼리톡@경남인재개발원, 무엇이든 물으세요!")
 
 # 7. 사용자 입력
 user_input = st.chat_input("경남인재개발원에 대해 벼리에게 물어보세요! :▷")
