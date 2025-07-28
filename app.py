@@ -49,7 +49,12 @@ class StreamHandler(BaseCallbackHandler):
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
-st.title("📊 통계가이드 기반 민원 챗봇")
+col1, col2 = st.columns([1, 6])
+with col1:
+    st.image("your_logo.png", width=60)   # ✅ 로고 삽입
+with col2:
+    st.markdown("### 통계가이드 기반 민원 챗봇")  # ✅ 마크다운으로 타이틀 표현
+
 
 # 6. 사용자 입력
 user_input = st.chat_input("통계가이드에서 궁금한 점을 질문하세요:")
@@ -84,7 +89,7 @@ if user_input:
     response = llm.predict(formatted_prompt)
     st.session_state.chat_history.append(("챗봇", response))
 
-# 8. 대화 내역 출력
+# 8. 대화 내역 출력 (말풍선 스타일 개선)
 for role, msg in st.session_state.chat_history:
-    with st.chat_message(role):
+    with st.chat_message("user" if role == "민원인" else "assistant"):
         st.markdown(msg)
