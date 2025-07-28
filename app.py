@@ -71,31 +71,33 @@ if user_input:
     # (1) 사용자 질문 저장
     st.session_state.chat_history.append(("민원인", user_input))
 
-    # (2) 관련 문서 검색
+    # (2) 챗봇 자리 미리 생성 (빈 응답으로)
+    st.session_state.chat_history.append(("벼리", ""))  # 나중에 덮어쓸 자리
+
+    # (3) 관련 문서 검색
     retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
     search_results = retriever.invoke(user_input)
     context = format_docs(search_results)
 
-    # (3) 프롬프트 생성
+    # (4) 프롬프트 생성
     formatted_prompt = prompt.format(question=user_input, context=context)
 
-    # (4) 답변 출력: 말풍선 안에서 스트리밍 표시
-    with st.chat_message("assistant"):
+    # (5) 스트리밍 출력을 위한 말풍선 + 핸들러 연결
+    chatbot_index = len(st.session_state.chat_history) - 1  # 마지막 항목 인덱스
+    with st.chat_message("assistant", avatar="byeory2.png"):
         message_placeholder = st.empty()
-
         handler = StreamHandler(message_placeholder)
         llm = ChatOpenAI(
             streaming=True,
             callbacks=[handler],
             openai_api_key=openai_api_key,
-            model_name="gpt-4o-mini",  # ✅ 모델 변경 완료
+            model_name="gpt-4o-mini",
             temperature=0.3,
         )
+        llm.invoke([HumanMessage(content=formatted_prompt)])
 
-        llm.invoke([HumanMessage(content=formatted_prompt)])  # ✅ 스트리밍 작동
-
-    # (5) 답변 저장
-    st.session_state.chat_history.append(("챗봇", handler.generated_text))
+    # 완성된 텍스트를 해당 인덱스에 덮어쓰기
+    st.session_state.chat_history[chatbot_index] = ("벼리", handler.generated_text)
 
 # 10. 대화 내역 말풍선 출력
 for role, msg in st.session_state.chat_history:
