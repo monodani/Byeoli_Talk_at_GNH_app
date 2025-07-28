@@ -101,5 +101,9 @@ if user_input:
 
 # 10. 대화 내역 말풍선 출력
 for role, msg in st.session_state.chat_history:
-    with st.chat_message("user" if role == "민원인" else "assistant"):
-        st.markdown(msg)
+    if role == "민원인":
+        with st.chat_message("user"):
+            st.markdown(msg)
+    else:  # "벼리"
+        with st.chat_message("assistant", avatar="byeory2.png"):  # ✅ 대화 로그용 아바타
+            st.markdown(msg)
