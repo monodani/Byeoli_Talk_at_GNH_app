@@ -76,14 +76,14 @@ if user_input:
     # (2) 프롬프트 적용
     formatted_prompt = prompt.format(question=user_input, context=context)
     
-# 스트리밍 핸들러 설정
-handler = StreamHandler()
-llm = ChatOpenAI(
-    streaming=True,
-    callbacks=[handler],
-    openai_api_key=openai_api_key,
-    model_name="gpt-4o",
-    temperature=0.3,
+    # 스트리밍 핸들러 설정
+    handler = StreamHandler()
+    llm = ChatOpenAI(
+        streaming=True,
+        callbacks=[handler],
+        openai_api_key=openai_api_key,
+        model_name="gpt-4o",
+        temperature=0.3,
 )
 
 # 말풍선 안에서 스트리밍 출력
