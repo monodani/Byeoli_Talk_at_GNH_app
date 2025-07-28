@@ -53,7 +53,7 @@ col1, col2 = st.columns([1, 6])
 with col1:
     st.image("your_logo.png", width=60)   # ✅ 로고 삽입
 with col2:
-    st.markdown("### 통계가이드 기반 민원 챗봇")  # ✅ 마크다운으로 타이틀 표현
+    st.markdown("### 경상남도인재개발원 큐레이터")  # ✅ 마크다운으로 타이틀 표현
 
 
 # 6. 사용자 입력
