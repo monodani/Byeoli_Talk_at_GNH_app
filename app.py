@@ -51,7 +51,7 @@ if 'chat_history' not in st.session_state:
 
 col1, col2 = st.columns([1, 6])
 with col1:
-    st.image("your_logo.png", width=60)   # ✅ 로고 삽입
+    st.image("byeory.png", width=60)   # ✅ 로고 삽입
 with col2:
     st.markdown("### 경상남도인재개발원 큐레이터")  # ✅ 마크다운으로 타이틀 표현
 
