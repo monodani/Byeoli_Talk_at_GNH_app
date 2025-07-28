@@ -38,12 +38,11 @@ HUMAN:
 # 4. 스트리밍 핸들러
 class StreamHandler(BaseCallbackHandler):
     def __init__(self):
-        self.text_area = st.empty()
-        self.full_text = ""
+        self.generated_text = ""
 
     def on_llm_new_token(self, token: str, **kwargs):
-        self.full_text += token
-        self.text_area.markdown(self.full_text)
+        self.generated_text += token  # 출력 없이 누적만
+
 
 # 5. 대화 내역 초기화
 if 'chat_history' not in st.session_state:
@@ -77,17 +76,25 @@ if user_input:
     # (2) 프롬프트 적용
     formatted_prompt = prompt.format(question=user_input, context=context)
     
-    # (3) 답변 생성 (스트리밍)
-    handler = StreamHandler()
-    llm = ChatOpenAI(
-        streaming=True,
-        callbacks=[handler],
-        openai_api_key=openai_api_key,
-        model_name="gpt-4o",
-        temperature=0.0,
-    )
-    response = llm.predict(formatted_prompt)
-    st.session_state.chat_history.append(("챗봇", response))
+# 스트리밍 핸들러 설정
+handler = StreamHandler()
+llm = ChatOpenAI(
+    streaming=True,
+    callbacks=[handler],
+    openai_api_key=openai_api_key,
+    model_name="gpt-4o",
+    temperature=0.3,
+)
+
+# 말풍선 안에서 스트리밍 출력
+with st.chat_message("assistant"):
+    message_placeholder = st.empty()
+    llm.predict(formatted_prompt)
+    message_placeholder.markdown(handler.generated_text)
+
+# 최종 응답 저장
+st.session_state.chat_history.append(("챗봇", handler.generated_text))
+
 
 # 8. 대화 내역 출력 (말풍선 스타일 개선)
 for role, msg in st.session_state.chat_history:
