@@ -38,17 +38,33 @@ def combined_search(question):
 
 # 5. 문서 형식 정리 함수
 def format_docs(docs):
+    def clean_table(text):
+        # 연속된 공백 → 탭으로 변환 (GPT가 표처럼 추정할 수 있도록)
+        lines = text.split("\n")
+        cleaned_lines = []
+        for line in lines:
+            if " " in line:
+                # 공백이 많은 경우 탭으로 치환 시도
+                parts = [part for part in line.split(" ") if part.strip()]
+                cleaned_line = "\t".join(parts)
+                cleaned_lines.append(cleaned_line)
+            else:
+                cleaned_lines.append(line)
+        return "\n".join(cleaned_lines)
+
     return "\n\n".join([
-        f"{doc.page_content}\n\n[출처: {doc.metadata.get('doc_name')}, p.{doc.metadata.get('page', -1) + 1}]"
+        f"{clean_table(doc.page_content)}\n\n[출처: {doc.metadata.get('doc_name')}, p.{doc.metadata.get('page', -1) + 1}]"
         for doc in docs
     ])
+
 
 
 # 6. 프롬프트 템플릿 정의
 prompt = PromptTemplate.from_template("""
 SYSTEM: 당신은 질문-답변(Question-Answering)을 수행하는 친절한 AI 어시스턴트입니다. 당신의 임무는 주어진 문맥(context) 에서 주어진 질문(question) 에 답하는 것입니다.
-검색된 다음 문맥(context) 을 사용하여 질문(question) 에 답하세요. 문맥에 정답이 직접적으로 명시되어 있지 않더라도, 문맥을 바탕으로 합리적으로 추론 가능한 경우에는 그 내용을 기반으로 성실히 답변하세요.
-기술적인 용어나 이름은 번역하지 않고 그대로 사용해 주세요. 가능하다면 답변 마지막에 문서명과 페이지 정보를 다음과 같이 표시해 주세요: [출처: 문서명, p.쪽번호]. 답변은 한글로 답변해 주세요.
+        문맥에 표 형식 데이터가 포함된 경우, 열(Column) 이름과 숫자 값을 잘 연결하여 의미를 해석해 주세요.
+        검색된 다음 문맥(context) 을 사용하여 질문(question) 에 답하세요. 만약, 주어진 문맥(context) 에서 답을 찾을 수 없다면, 답을 모른다면 '주어진 정보에서 질문에 대한 정보를 찾을 수 없습니다' 라고 답하세요.
+        기술적인 용어나 이름은 번역하지 않고 그대로 사용해 주세요. 출처(page, source)를 답변에 포함하세요. 답변은 한글로 답변해 주세요.
 
 HUMAN:
 #Question: {question}
