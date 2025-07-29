@@ -28,8 +28,8 @@ vector_2025 = load_vectorstore("2025년 교육훈련계획서.pdf", "2025년 교
 # 4. 검색 통합 함수
 def combined_search(question):
     retrievers = [
-        vector_2024.as_retriever(search_kwargs={"k": 3}),
-        vector_2025.as_retriever(search_kwargs={"k": 3})
+        vector_2024.as_retriever(search_kwargs={"k": 5}),
+        vector_2025.as_retriever(search_kwargs={"k": 5})
     ]
     all_results = []
     for retriever in retrievers:
@@ -48,7 +48,7 @@ def format_docs(docs):
 # 6. 프롬프트 템플릿 정의
 prompt = PromptTemplate.from_template("""
 SYSTEM: 당신은 질문-답변(Question-Answering)을 수행하는 친절한 AI 어시스턴트입니다. 당신의 임무는 주어진 문맥(context) 에서 주어진 질문(question) 에 답하는 것입니다.
-검색된 다음 문맥(context) 을 사용하여 질문(question) 에 답하세요. 만약, 주어진 문맥(context) 에서 답을 찾을 수 없다면, 답을 모른다면 '그 질문에는 답을 할 수가 없어요. 듣고 싶은 교육과정이나 작년 인기 교육과정에 대해 질문해주세요! : )' 라고 답하세요.
+검색된 다음 문맥(context) 을 사용하여 질문(question) 에 답하세요. 만약, 주어진 문맥(context) 에서 답을 찾을 수 없다면, 답을 모른다면 '그 질문에는 답을 할 수가 없어요. 2025년 교육과정 일정이나 2024년 종합만족도 또는 강사강의 만족도에 대해 질문해주세요! : )' 라고 답하세요.
 기술적인 용어나 이름은 번역하지 않고 그대로 사용해 주세요. 출처(page, source)를 답변에 포함하세요. 답변은 한글로 답변해 주세요.
 
 HUMAN:
@@ -83,40 +83,50 @@ with col2:
 # 10. 사용자 입력
 user_input = st.chat_input("경남인재개발원 교육과정에 대해 벼리에게 물어보세요! : ▷")
 
+# 11. 사용자 입력 처리
 if user_input:
+    
     # 사용자 질문 기록
     st.session_state.chat_history.append(("민원인", user_input))
+    # 빈 챗봇 응답 자리 추가
+    st.session_state.chat_history.append(("벼리", ""))  # 미리 자리 만들기
 
-    # 챗봇 응답 자리 비워두기
-    st.session_state.chat_history.append(("벼리", ""))
-    chatbot_index = len(st.session_state.chat_history) - 1
-
-    # 문서 검색 및 컨텍스트 구성
-    search_results = combined_search(user_input)
-    context = format_docs(search_results)
-    formatted_prompt = prompt.format(question=user_input, context=context)
-
-    # GPT 스트리밍 응답 출력
-    with st.chat_message("assistant", avatar="byeory.png"):
-        message_placeholder = st.empty()
-        handler = StreamHandler(message_placeholder)
-        llm = ChatOpenAI(
-            streaming=True,
-            callbacks=[handler],
-            openai_api_key=openai_api_key,
-            model_name="gpt-4o-mini",
-            temperature=0.3,
-        )
-        llm.invoke([HumanMessage(content=formatted_prompt)])
-
-    # 최종 응답 저장
-    st.session_state.chat_history[chatbot_index] = ("벼리", handler.generated_text)
-
-# 11. 대화 기록 출력
-for role, msg in st.session_state.chat_history:
+# 12. 대화 출력 (챗봇 스트리밍도 여기서 함께 처리)
+for i, (role, msg) in enumerate(st.session_state.chat_history):
     if role == "민원인":
         with st.chat_message("user"):
             st.markdown(msg)
-    else:  # 벼리
+
+    elif role == "벼리" and msg == "":
+        with st.chat_message("assistant", avatar="byeory.png"):
+            message_placeholder = st.empty()
+            handler = StreamHandler(message_placeholder)
+
+            # 사용자 입력은 직전 항목 기준
+            last_user_input = None
+            for j in range(i - 1, -1, -1):
+                if st.session_state.chat_history[j][0] == "민원인":
+                    last_user_input = st.session_state.chat_history[j][1]
+                    break
+
+            if last_user_input:
+                # 검색 + 답변 생성
+                search_results = combined_search(last_user_input)
+                context = format_docs(search_results)
+                formatted_prompt = prompt.format(question=last_user_input, context=context)
+
+                llm = ChatOpenAI(
+                    model_name="gpt-4o-mini",
+                    streaming=True,
+                    callbacks=[handler],
+                    openai_api_key=openai_api_key,
+                    temperature=0.3,
+                )
+                llm.invoke([HumanMessage(content=formatted_prompt)])
+
+                # 스트리밍된 답변 저장
+                st.session_state.chat_history[i] = ("벼리", handler.generated_text)
+
+    else:
         with st.chat_message("assistant", avatar="byeory2.png"):
             st.markdown(msg)
