@@ -10,21 +10,45 @@ from langchain_core.messages import HumanMessage
 # 1. API KEY 가져오기
 openai_api_key = st.secrets["OPENAI_API_KEY"]
 
-# 2. PDF에서 데이터 추출 및 벡터스토어 생성
+# 2. 벡터스토어 로드 함수
 @st.cache_resource(show_spinner=True)
-def load_vectorstore(pdf_path):
+def load_vectorstore(pdf_path, name):
     loader = PyPDFLoader(pdf_path)
     pages = loader.load_and_split()
+    for p in pages:
+        p.metadata["doc_name"] = name  # 문서 출처 구분
     embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
     vectorstore = FAISS.from_documents(pages, embeddings)
     return vectorstore
 
-vectorstore = load_vectorstore("통계가이드.pdf")
+# 3. 두 PDF 문서 로드
+vector_2024 = load_vectorstore("2024년도 교육훈련종합평가서.pdf", "2024년도 교육훈련 종합평가서")
+vector_2025 = load_vectorstore("2025년 교육훈련계획서.pdf", "2025년 교육훈련계획서")
 
-# 3. 프롬프트 템플릿 정의
+# 4. 검색 통합 함수
+def combined_search(question):
+    retrievers = [
+        vector_2024.as_retriever(search_kwargs={"k": 3}),
+        vector_2025.as_retriever(search_kwargs={"k": 3})
+    ]
+    all_results = []
+    for retriever in retrievers:
+        all_results.extend(retriever.invoke(question))
+    return all_results
+
+# 5. 문서 형식 정리 함수
+def format_docs(docs):
+    return "\n".join([
+        f"<document><content>{doc.page_content}</content>"
+        f"<source>{doc.metadata.get('doc_name')}</source>"
+        f"<page>{doc.metadata.get('page', -1) + 1 if 'page' in doc.metadata else '?'}</page></document>"
+        for doc in docs
+    ])
+
+# 6. 프롬프트 템플릿 정의
 prompt = PromptTemplate.from_template("""
 SYSTEM: 당신은 질문-답변(Question-Answering)을 수행하는 친절한 AI 어시스턴트입니다. 당신의 임무는 주어진 문맥(context) 에서 주어진 질문(question) 에 답하는 것입니다.
-검색된 다음 문맥(context) 을 사용하여 질문(question) 에 답하세요. 만약, 주어진 문맥(context) 에서 답을 찾을 수 없다면, 답을 모른다면 '주어진 정보에서 질문에 대한 정보를 찾을 수 없습니다' 라고 답하세요.
+검색된 다음 문맥(context) 을 사용하여 질문(question) 에 답하세요. 만약, 주어진 문맥(context) 에서 답을 찾을 수 없다면, 답을 모른다면 '그 질문에는 답을 할 수가 없어요. 듣고 싶은 교육과정이나 작년 인기 교육과정에 대해 질문해주세요! : )' 라고 답하세요.
 기술적인 용어나 이름은 번역하지 않고 그대로 사용해 주세요. 출처(page, source)를 답변에 포함하세요. 답변은 한글로 답변해 주세요.
 
 HUMAN:
@@ -35,7 +59,7 @@ HUMAN:
 #Answer:
 """)
 
-# 4. 스트리밍 핸들러 클래스 정의
+# 7. 스트리밍 핸들러
 class StreamHandler(BaseCallbackHandler):
     def __init__(self, placeholder):
         self.placeholder = placeholder
@@ -45,46 +69,35 @@ class StreamHandler(BaseCallbackHandler):
         self.generated_text += token
         self.placeholder.markdown(self.generated_text)
 
-# 5. 대화 내역 초기화
+# 8. 대화 기록 초기화
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# 6. 상단 로고 및 제목 구성
+# 9. 상단 UI: 로고 + 타이틀
 col1, col2 = st.columns([1, 6])
 with col1:
-    st.image("byeory.png", width=60)  # 로고 이미지 파일
+    st.image("byeory.png", width=60)
 with col2:
     st.markdown("### 벼리톡@경남인재개발원")
 
-# 7. 사용자 입력
-user_input = st.chat_input("경남인재개발원에 대해 벼리에게 물어보세요! :▷")
+# 10. 사용자 입력
+user_input = st.chat_input("경남인재개발원 교육과정에 대해 벼리에게 물어보세요! : ▷")
 
-# 8. 문서 포맷 정리 함수
-def format_docs(docs):
-    return "\n".join([
-        f"<document><content>{doc.page_content}</content><source>{doc.metadata.get('source','통계가이드.pdf')}</source><page>{doc.metadata.get('page',-1)+1 if 'page' in doc.metadata else '?'}></page></document>"
-        for doc in docs
-    ])
-
-# 9. 입력 시 처리
 if user_input:
-    # (1) 사용자 질문 저장
+    # 사용자 질문 기록
     st.session_state.chat_history.append(("민원인", user_input))
 
-    # (2) 챗봇 자리 미리 생성 (빈 응답으로)
-    st.session_state.chat_history.append(("벼리", ""))  # 나중에 덮어쓸 자리
+    # 챗봇 응답 자리 비워두기
+    st.session_state.chat_history.append(("벼리", ""))
+    chatbot_index = len(st.session_state.chat_history) - 1
 
-    # (3) 관련 문서 검색
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
-    search_results = retriever.invoke(user_input)
+    # 문서 검색 및 컨텍스트 구성
+    search_results = combined_search(user_input)
     context = format_docs(search_results)
-
-    # (4) 프롬프트 생성
     formatted_prompt = prompt.format(question=user_input, context=context)
 
-    # (5) 스트리밍 출력을 위한 말풍선 + 핸들러 연결
-    chatbot_index = len(st.session_state.chat_history) - 1  # 마지막 항목 인덱스
-    with st.chat_message("assistant", avatar="byeory2.png"):
+    # GPT 스트리밍 응답 출력
+    with st.chat_message("assistant", avatar="byeory.png"):
         message_placeholder = st.empty()
         handler = StreamHandler(message_placeholder)
         llm = ChatOpenAI(
@@ -96,14 +109,14 @@ if user_input:
         )
         llm.invoke([HumanMessage(content=formatted_prompt)])
 
-    # 완성된 텍스트를 해당 인덱스에 덮어쓰기
+    # 최종 응답 저장
     st.session_state.chat_history[chatbot_index] = ("벼리", handler.generated_text)
 
-# 10. 대화 내역 말풍선 출력
+# 11. 대화 기록 출력
 for role, msg in st.session_state.chat_history:
     if role == "민원인":
         with st.chat_message("user"):
             st.markdown(msg)
-    else:  # "벼리"
-        with st.chat_message("assistant", avatar="byeory2.png"):  # ✅ 대화 로그용 아바타
+    else:  # 벼리
+        with st.chat_message("assistant", avatar="byeory2.png"):
             st.markdown(msg)
