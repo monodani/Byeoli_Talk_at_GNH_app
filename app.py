@@ -38,18 +38,17 @@ def combined_search(question):
 
 # 5. 문서 형식 정리 함수
 def format_docs(docs):
-    return "\n".join([
-        f"<document><content>{doc.page_content}</content>"
-        f"<source>{doc.metadata.get('doc_name')}</source>"
-        f"<page>{doc.metadata.get('page', -1) + 1 if 'page' in doc.metadata else '?'}</page></document>"
+    return "\n\n".join([
+        f"{doc.page_content}\n\n[출처: {doc.metadata.get('doc_name')}, p.{doc.metadata.get('page', -1) + 1}]"
         for doc in docs
     ])
+
 
 # 6. 프롬프트 템플릿 정의
 prompt = PromptTemplate.from_template("""
 SYSTEM: 당신은 질문-답변(Question-Answering)을 수행하는 친절한 AI 어시스턴트입니다. 당신의 임무는 주어진 문맥(context) 에서 주어진 질문(question) 에 답하는 것입니다.
-검색된 다음 문맥(context) 을 사용하여 질문(question) 에 답하세요. 만약, 주어진 문맥(context) 에서 답을 찾을 수 없다면, 답을 모른다면 '그 질문에는 답을 할 수가 없어요. 2025년 교육과정 일정이나 2024년 종합만족도 또는 강사강의 만족도에 대해 질문해주세요! : )' 라고 답하세요.
-기술적인 용어나 이름은 번역하지 않고 그대로 사용해 주세요. 출처(page, source)를 답변에 포함하세요. 답변은 한글로 답변해 주세요.
+검색된 다음 문맥(context) 을 사용하여 질문(question) 에 답하세요. 문맥에 정답이 직접적으로 명시되어 있지 않더라도, 문맥을 바탕으로 합리적으로 추론 가능한 경우에는 그 내용을 기반으로 성실히 답변하세요.
+기술적인 용어나 이름은 번역하지 않고 그대로 사용해 주세요. 가능하다면 답변 마지막에 문서명과 페이지 정보를 다음과 같이 표시해 주세요: [출처: 문서명, p.쪽번호]. 답변은 한글로 답변해 주세요.
 
 HUMAN:
 #Question: {question}
@@ -116,7 +115,7 @@ for i, (role, msg) in enumerate(st.session_state.chat_history):
                 formatted_prompt = prompt.format(question=last_user_input, context=context)
 
                 llm = ChatOpenAI(
-                    model_name="gpt-4o-mini",
+                    model_name="gpt-4o",
                     streaming=True,
                     callbacks=[handler],
                     openai_api_key=openai_api_key,
