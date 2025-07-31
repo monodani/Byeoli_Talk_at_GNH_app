@@ -8,6 +8,8 @@ from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_core.messages import HumanMessage
 from langchain_community.document_loaders import CSVLoader
 
+
+
 # 1. API KEY 가져오기
 openai_api_key = st.secrets["OPENAI_API_KEY"]
 
@@ -33,23 +35,27 @@ def load_vectorstore_csv(csv_path, name):
 
 
 # 3. 두 PDF 문서 로드
-vector_2024 = load_vectorstore("2024년도 교육훈련종합평가서.pdf", "2024년도 교육훈련 종합평가서")
-vector_2025 = load_vectorstore("2025년 교육훈련계획서.pdf", "2025년 교육훈련계획서")
-vector_교과 = load_vectorstore_csv("2025 교과목 만족도.csv", "2025 교과목 만족도")
-vector_종합 = load_vectorstore_csv("2025 교육과정 종합만족도.csv", "2025 교육과정 종합만족도")
+vector_2024_교육평가 = load_vectorstore("2024년도 교육훈련종합평가서.pdf", "2024년도 교육훈련 종합평가서")
+vector_2025_교육계획 = load_vectorstore("2025년 교육훈련계획서.pdf", "2025년 교육훈련계획서")
+vector_2025_교과목 = load_vectorstore_csv("2025 교과목 만족도.csv", "2025 교과목 만족도")
+vector_2025_교육과정 = load_vectorstore_csv("2025 교육과정 종합만족도.csv", "2025 교육과정 종합만족도")
 
 # 4. 검색 통합 함수
+from operator import attrgetter
 def combined_search(question):
     retrievers = [
-        vector_2024.as_retriever(search_kwargs={"k": 10}),
-        vector_2025.as_retriever(search_kwargs={"k": 10}),
-        vector_교과.as_retriever(search_kwargs={"k": 10}),
-        vector_종합.as_retriever(search_kwargs={"k": 10}),
+        vector_2024_교육평가.as_retriever(search_kwargs={"k": 5}),
+        vector_2025_교육계획.as_retriever(search_kwargs={"k": 5}),
+        vector_2025_교과목.as_retriever(search_kwargs={"k": 5}),
+        vector_2025_교육과정.as_retriever(search_kwargs={"k": 5}),
     ]
     all_results = []
     for retriever in retrievers:
         all_results.extend(retriever.invoke(question))
-    return all_results
+    # 유사도 점수가 있다면 기준으로 정렬
+    sorted_results = sorted(all_results, key=lambda x: x.metadata.get("score", 0), reverse=True)
+    # 상위 10개만 사용
+    return sorted_results[:10]
 
 # 5. 문서 형식 정리 함수
 def format_docs(docs):
@@ -78,7 +84,8 @@ def format_docs(docs):
 prompt = PromptTemplate.from_template("""
 SYSTEM: 당신의 이름은 "벼리"로 질문-답변(Question-Answering)을 수행하는 친절한 AI 어시스턴트입니다.
         당신의 임무는 주어진 문맥(context)에서 주어진 질문(question)에 답하는 것입니다.
-        검색된 다음 문맥(context)을 사용하여 질문(question)에 답하세요. 만약, 주어진 문맥(context)에서 답을 찾을 수 없다면, 답을 모른다면 '주어진 정보에서 질문에 대한 정보를 찾을 수 없습니다' 라고 답하세요.
+        검색된 다음 문맥(context)을 사용하여 질문(question)에 답하세요. 만약, 주어진 문맥(context)에서 답을 찾을 수 없거나 답을 모른다면, 사용자가 당신에게 주어진 정보에 접근할 수 있도록 힌트를 주거나 사용자 질문을 되물어 사용자 의도를 정확히 파악하세요.
+        그럼에도, 해당 질문이 당신에게 주어진 정보 기반으로는 답을 할 수 없거나 모른다면, "벼리가 답하기 어려운 내용이에요...ㅠ_ㅠ" 또는 "벼리가 잘 모르는 내용이에요...ㅜ"라고 답하면서 사용자 질문과 유사성이 높은 당신이 지닌 정보가 무엇인지 알려주고 이를 원하는지 물으세요.
         문맥에 표 형식의 데이터가 포함된 경우, 문맥(context)을 표의 열(column)과 행(row)의 이름에 잘 연결하여,
         해당되는 그 열(column)과 행(row)이 교차하는 셀의 데이터 값을 불러와 그 의미를 해석해 주세요.
         기술적인 용어나 이름은 번역하지 않고 그대로 사용해 주세요. 출처(page, source)를 답변에 포함하세요. 답변은 한글로 답변해 주세요.
