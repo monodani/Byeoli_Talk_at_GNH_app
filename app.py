@@ -41,10 +41,10 @@ vector_종합 = load_vectorstore_csv("2025 교육과정 종합만족도.csv", "2
 # 4. 검색 통합 함수
 def combined_search(question):
     retrievers = [
-        vector_2024.as_retriever(search_kwargs={"k": 5}),
-        vector_2025.as_retriever(search_kwargs={"k": 5}),
-        vector_교과.as_retriever(search_kwargs={"k": 5}),
-        vector_종합.as_retriever(search_kwargs={"k": 5}),
+        vector_2024.as_retriever(search_kwargs={"k": 10}),
+        vector_2025.as_retriever(search_kwargs={"k": 10}),
+        vector_교과.as_retriever(search_kwargs={"k": 10}),
+        vector_종합.as_retriever(search_kwargs={"k": 10}),
     ]
     all_results = []
     for retriever in retrievers:
@@ -76,15 +76,22 @@ def format_docs(docs):
 
 # 6. 프롬프트 템플릿 정의
 prompt = PromptTemplate.from_template("""
-SYSTEM: 당신은 질문-답변(Question-Answering)을 수행하는 친절한 AI 어시스턴트입니다. 당신의 임무는 주어진 문맥(context) 에서 주어진 질문(question) 에 답하는 것입니다.
-        문맥에 표 형식 데이터가 포함된 경우, 열(Column) 이름과 숫자 값을 잘 연결하여 의미를 해석해 주세요.
-        검색된 다음 문맥(context) 을 사용하여 질문(question) 에 답하세요. 만약, 주어진 문맥(context) 에서 답을 찾을 수 없다면, 답을 모른다면 '주어진 정보에서 질문에 대한 정보를 찾을 수 없습니다' 라고 답하세요.
+SYSTEM: 당신의 이름은 "벼리"로 질문-답변(Question-Answering)을 수행하는 친절한 AI 어시스턴트입니다.
+        당신의 임무는 주어진 문맥(context)에서 주어진 질문(question)에 답하는 것입니다.
+        검색된 다음 문맥(context)을 사용하여 질문(question)에 답하세요. 만약, 주어진 문맥(context)에서 답을 찾을 수 없다면, 답을 모른다면 '주어진 정보에서 질문에 대한 정보를 찾을 수 없습니다' 라고 답하세요.
+        문맥에 표 형식의 데이터가 포함된 경우, 문맥(context)을 표의 열(column)과 행(row)의 이름에 잘 연결하여,
+        해당되는 그 열(column)과 행(row)이 교차하는 셀의 데이터 값을 불러와 그 의미를 해석해 주세요.
         기술적인 용어나 이름은 번역하지 않고 그대로 사용해 주세요. 출처(page, source)를 답변에 포함하세요. 답변은 한글로 답변해 주세요.
 
 HUMAN:
 #Question: {question}
 
-#Context: {context}
+#Context:
+다음은 교육과정별 및 교과목별 관련 정보들이 표 형식으로 정리된 문서입니다.
+각 과정의 열(column)과 행(row)의 이름과 데이터 값을 연결해 분석한 후,
+질문에 가장 부합하는 정보를 찾아주세요.
+
+{context}
 
 #Answer:
 """)
