@@ -6,7 +6,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_core.messages import HumanMessage
-from langchain_community.document_loaders import CSVLoader
+# from langchain_community.document_loaders import CSVLoader
 from operator import attrgetter
 
 # 1. API KEY 가져오기
@@ -23,37 +23,41 @@ def load_vectorstore(pdf_path, name):
     vectorstore = FAISS.from_documents(pages, embeddings)
     return vectorstore
 
-def load_vectorstore_csv(csv_path, name):
-    loader = CSVLoader(file_path=csv_path, encoding="utf-8", csv_args={'delimiter': ','})
-    docs = loader.load()
-    for d in docs:
-        d.metadata["doc_name"] = name
-    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-    vectorstore = FAISS.from_documents(docs, embeddings)
-    return vectorstore
+# def load_vectorstore_csv(csv_path, name):
+#     loader = CSVLoader(file_path=csv_path, encoding="utf-8", csv_args={'delimiter': ','})
+#     docs = loader.load()
+#     for d in docs:
+#         d.metadata["doc_name"] = name
+#     embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+#     vectorstore = FAISS.from_documents(docs, embeddings)
+#     return vectorstore
 
 
 # 3. 두 PDF 문서 로드
-vector_2024_교육평가 = load_vectorstore("2024년도 교육훈련종합평가서.pdf", "2024년도 교육훈련 종합평가서")
+vector_2024_교육평가 = load_vectorstore("2024년도 교육훈련종합평가서.pdf", "2024년도 교육훈련종합평가서")
 vector_2025_교육계획 = load_vectorstore("2025년 교육훈련계획서.pdf", "2025년 교육훈련계획서")
-vector_2025_교과목 = load_vectorstore_csv("2025 교과목 만족도.csv", "2025 교과목 만족도")
-vector_2025_교육과정 = load_vectorstore_csv("2025 교육과정 종합만족도.csv", "2025 교육과정 종합만족도")
+vector_2025_교과목_만족도 = load_vectorstore("2025 교과목 강사강의 만족도 현황.pdf", "2025 교과목 강사강의 만족도 현황")
+vector_2025_교육과정_만족도 = load_vectorstore("2025 교육과정 강사강의 만족도 및 종합만족도 현황.pdf", "2025 교육과정 강사강의 만족도 및 종합만족도 현황")
 
 # 4. 검색 통합 함수
 def combined_search(question):
     retrievers = [
         vector_2024_교육평가.as_retriever(search_kwargs={"k": 5}),
         vector_2025_교육계획.as_retriever(search_kwargs={"k": 5}),
-        vector_2025_교과목.as_retriever(search_kwargs={"k": 5}),
-        vector_2025_교육과정.as_retriever(search_kwargs={"k": 5}),
+        vector_2025_교과목_만족도.as_retriever(search_kwargs={"k": 5}),
+        vector_2025_교육과정_만족도.as_retriever(search_kwargs={"k": 5}),
     ]
     all_results = []
     for retriever in retrievers:
         all_results.extend(retriever.invoke(question))
-    # 유사도 점수가 있다면 기준으로 정렬
-    sorted_results = sorted(all_results, key=lambda x: x.metadata.get("score", 0), reverse=True)
-    # 상위 10개만 사용
+    # score 필드가 있으면 정렬, 없으면 순서 그대로
+    if all_results and "score" in all_results[0].metadata:
+        sorted_results = sorted(all_results, key=lambda x: x.metadata["score"], reverse=True)
+    else:
+        sorted_results = all_results
+    # 상위 10개만 반환
     return sorted_results[:10]
+
 
 # 5. 문서 형식 정리 함수
 def format_docs(docs):
@@ -71,11 +75,19 @@ def format_docs(docs):
                 cleaned_lines.append(line)
         return "\n".join(cleaned_lines)
 
+    def get_source(doc):
+        page = doc.metadata.get('page')
+        doc_name = doc.metadata.get('doc_name', 'Unknown')
+        if page is not None and isinstance(page, int) and page >= 0:
+            return f"[출처: {doc_name}, p.{page+1}]"
+        else:
+            return f"[출처: {doc_name}]"
+
     return "\n\n".join([
-        f"{clean_table(doc.page_content)}\n\n[출처: {doc.metadata.get('doc_name')}, p.{doc.metadata.get('page', -1) + 1}]"
+        f"{clean_table(doc.page_content)}\n\n{get_source(doc)}"
         for doc in docs
     ])
-    
+
 # 🔁 최근 대화 기록을 문자열로 변환하는 함수
 def convert_chat_history_to_str(history, max_turns=3):
     """
@@ -170,10 +182,10 @@ for i, (role, msg) in enumerate(st.session_state.chat_history):
                 context = format_docs(search_results)
                 formatted_prompt = prompt.format(
                       question=last_user_input,
-                      context=format_docs(search_results),
+                      context=context,
                       chat_history=convert_chat_history_to_str(st.session_state.chat_history)
 )
-
+              
                 llm = ChatOpenAI(
                     model_name="gpt-4o",
                     streaming=True,
