@@ -4,10 +4,9 @@
   "features": {
     "ghcr.io/devcontainers/features/python:1": {
       "version": "3.11"
-    },
-    "ghcr.io/devcontainers-contrib/features/tesseract-ocr:1": {}
+    }
   },
-  "postCreateCommand": "make setup",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y tesseract-ocr && make setup",
   "customizations": {
     "vscode": {
       "extensions": [
