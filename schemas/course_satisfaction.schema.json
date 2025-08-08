@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Course Satisfaction CSV Schema",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "교육주차": { "type": "string", "minLength": 2, "pattern": "^\s?\d{1,2}월\s\d주차$" },
+    "교육과정_기수": { "type": "integer", "minimum": 1 },
+    "교육과정": { "type": "string", "minLength": 1 },
+    "교육과정_유형": { "type": "string", "minLength": 1 },
+    "교육일자": { "type": "string", "minLength": 5 },
+    "교육장소": { "type": "string", "minLength": 1 },
+    "교육인원": { "type": "integer", "minimum": 1 },
+    "전반만족도": { "type": "number", "minimum": 0, "maximum": 5 },
+    "역량향상도": { "type": "number", "minimum": 0, "maximum": 5 },
+    "현업적용도": { "type": "number", "minimum": 0, "maximum": 5 },
+    "교과편성_만족도": { "type": "number", "minimum": 0, "maximum": 5 },
+    "교육과정별_강의만족도_평균": { "type": "number", "minimum": 0, "maximum": 5 },
+    "종합만족도": { "type": "number", "minimum": 0, "maximum": 5 },
+    "교육연도": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+    "교육과정_순위": { "type": "integer", "minimum": 1 }
+  },
+  "required": [
+    "교육주차", "교육과정_기수", "교육과정", "교육과정_유형", "교육일자", "교육장소",
+    "교육인원", "전반만족도", "역량향상도", "현업적용도", "교과편성_만족도",
+    "교육과정별_강의만족도_평균", "종합만족도", "교육연도", "교육과정_순위"
+  ]
+}
