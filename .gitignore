@@ -1,0 +1,28 @@
+# venv & python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.DS_Store
+
+# env
+.env
+.env.local
+
+# app artifacts
+cache/
+logs/
+vectorstores/**
+.openai/
+
+# streamlit
+.streamlit/
+
+# notebooks
+*.ipynb_checkpoints
+
+# OS / editor
+.vscode/
+.idea/
