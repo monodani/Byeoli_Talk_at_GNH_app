@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Subject Satisfaction CSV Schema",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "교육주차": { "type": "string", "minLength": 2, "pattern": "^\s?\d{1,2}월\s\d주차$" },
+    "교육과정_기수": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "pattern": "^\d+$" }
+      ]
+    },
+    "교육과정": { "type": "string", "minLength": 1 },
+    "교과목(강의)": { "type": "string", "minLength": 1 },
+    "강의만족도": { "type": "number", "minimum": 0, "maximum": 5 },
+    "교육연도": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+    "교과목(강의)_순위": { "type": "integer", "minimum": 1 }
+  },
+  "required": [
+    "교육주차", "교육과정_기수", "교육과정", "교과목(강의)", "강의만족도", "교육연도", "교과목(강의)_순위"
+  ]
+}
