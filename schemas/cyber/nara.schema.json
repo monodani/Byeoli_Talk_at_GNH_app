@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "나라사이버 일정 CSV Schema (nara.csv)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "교육과정": { "type": "string", "minLength": 1 },
+    "분류": { "type": "string", "minLength": 1 },
+    "학습차시": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "pattern": "^\\d+시간$" }
+      ]
+    },
+    "인정시간": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "pattern": "^\\d+시간$" }
+      ]
+    },
+    "평가유무": { "type": "string", "enum": ["있습니다", "없습니다"] }
+  },
+  "required": ["교육과정", "분류", "학습차시", "인정시간", "평가유무"]
+}
