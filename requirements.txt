@@ -1,9 +1,30 @@
-streamlit
-langchain
-langchain-community
-langchain-core
-openai
-faiss-cpu
-tiktoken
-pandas
-pypdf
+# --- Core ---
+python-dotenv==1.0.1
+pydantic==2.8.2
+structlog==24.4.0
+loguru==0.7.2
+
+# --- Data ---
+pandas==2.2.2
+numpy==1.26.4
+rapidfuzz==3.9.6           # lightweight rerank utils
+rank-bm25==0.2.2           # BM25 retriever
+
+# --- Files / Text ---
+pypdf==5.1.0               # PDF text extraction
+Pillow==10.4.0             # image utils
+pytesseract==0.3.13        # OCR (system tesseract required)
+
+# --- Embeddings / Vector ---
+faiss-cpu==1.8.0.post1
+sentence-transformers==3.0.1  # fallback embeddings
+openai==1.37.1                # if using OpenAI Embeddings
+
+# --- App ---
+streamlit==1.38.0
+uvicorn==0.30.5              # optional local API serving
+
+# --- Quality ---
+ruff==0.5.7
+pytest==8.3.2
+pytest-cov==5.0.0
