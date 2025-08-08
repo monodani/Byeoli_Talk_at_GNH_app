@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "민간사이버 일정 CSV Schema (mingan.csv)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "구분": { "type": "string", "minLength": 1 },
+    "대분류": { "type": "string", "minLength": 1 },
+    "중분류": { "type": "string", "minLength": 1 },
+    "소분류": { "type": "string", "minLength": 1 },
+    "세분류": { "type": "string", "minLength": 1 },
+    "교육과정": { "type": "string", "minLength": 1 },
+    "인정시간": { "type": "integer", "minimum": 1 },
+    "학습시간": { "type": "integer", "minimum": 1 },
+    "개발연도": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+    "개발월": { "type": "integer", "minimum": 1, "maximum": 12 }
+  },
+  "required": [
+    "구분", "대분류", "중분류", "소분류", "세분류", "교육과정",
+    "인정시간", "학습시간", "개발연도", "개발월"
+  ]
+}
