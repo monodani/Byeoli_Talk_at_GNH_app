@@ -1,21 +1,19 @@
 """
-만족도 통합 로더
+만족도 통합 로더 - BaseLoader 패턴 준수 리팩토링
 교육과정 만족도(course_satisfaction.csv)와 교과목 만족도(subject_satisfaction.csv)를 
 통합 처리하여 단일 벡터스토어 생성
 """
 
-import pandas as pd
-from typing import List
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from .base_loader import BaseLoader
-from utils.textifier import TextChunk
+from modules.base_loader import BaseLoader, TextChunk
 from utils.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
 class SatisfactionLoader(BaseLoader):
-    """만족도 데이터 통합 로더"""
+    """만족도 데이터 통합 로더 - BaseLoader 표준 준수"""
     
     # 기존 템플릿 보존 (코랩에서 검증된 로직)
     COURSE_TEMPLATE = (
@@ -47,10 +45,10 @@ class SatisfactionLoader(BaseLoader):
     
     def process_domain_data(self, chunks: List[TextChunk]) -> List[TextChunk]:
         """
-        만족도 데이터를 통합 처리
+        만족도 데이터를 통합 처리 (BaseLoader 표준 준수)
         
         Args:
-            chunks: textifier로 추출된 CSV 원본 청크들
+            chunks: textifier로 추출된 CSV 원본 청크들 (row_data 포함)
             
         Returns:
             템플릿이 적용된 통합 처리된 청크들
@@ -80,53 +78,50 @@ class SatisfactionLoader(BaseLoader):
         return all_processed
     
     def _process_course_chunks(self, chunks: List[TextChunk]) -> List[TextChunk]:
-        """교육과정 만족도 청크 처리 (기존 로직 보존)"""
+        """교육과정 만족도 청크 처리 (BaseLoader 패턴 준수)"""
         processed_chunks = []
         
         for chunk in chunks:
             try:
-                # CSV 행 데이터 파싱
-                row_data = self._parse_csv_chunk(chunk.content)
+                # ✅ textifier가 저장한 원본 row_data 직접 사용
+                row_data = chunk.metadata.get("row_data", {})
                 if not row_data:
+                    logger.warning(f"No row_data found in chunk metadata: {chunk.source_id}")
                     continue
                 
-                # 필수 필드 확인 (기존 템플릿 기준)
-                required_fields = [
-                    '교육주차', '교육과정_기수', '교육과정', '교육과정_유형', 
-                    '교육일자', '교육장소', '교육인원', '전반만족도', '역량향상도', 
-                    '현업적용도', '교과편성_만족도', '교육과정별_강의만족도_평균', 
-                    '종합만족도', '교육연도', '교육과정_순위'
-                ]
-                
-                missing_fields = [field for field in required_fields if field not in row_data]
-                if missing_fields:
-                    logger.warning(f"Missing course fields: {missing_fields}")
+                # 필수 필드 확인 및 안전한 처리
+                safe_row_data = self._validate_and_clean_course_data(row_data, chunk.source_id)
+                if not safe_row_data:
                     continue
                 
-                # 템플릿 적용
-                formatted_content = self.COURSE_TEMPLATE.format(**row_data)
+                # ✅ 템플릿 직접 적용 (파싱 과정 생략)
+                try:
+                    formatted_content = self.COURSE_TEMPLATE.format(**safe_row_data)
+                except KeyError as e:
+                    logger.error(f"Template formatting failed for {chunk.source_id}: missing field {e}")
+                    continue
                 
-                # 메타데이터 생성 (검색 최적화)
-                new_metadata = {
+                # 검색 최적화 메타데이터 생성
+                enhanced_metadata = {
                     **chunk.metadata,
                     "satisfaction_type": "course",
-                    "education_course": row_data.get('교육과정', ''),
-                    "course_session": row_data.get('교육과정_기수', ''),
-                    "course_type": row_data.get('교육과정_유형', ''),
-                    "education_week": row_data.get('교육주차', ''),
-                    "education_year": row_data.get('교육연도', ''),
-                    "overall_satisfaction": row_data.get('전반만족도', ''),
-                    "comprehensive_satisfaction": row_data.get('종합만족도', ''),
-                    "course_ranking": row_data.get('교육과정_순위', ''),
-                    "capacity_improvement": row_data.get('역량향상도', ''),
-                    "work_application": row_data.get('현업적용도', ''),
-                    "curriculum_satisfaction": row_data.get('교과편성_만족도', ''),
-                    "lecture_satisfaction_avg": row_data.get('교육과정별_강의만족도_평균', '')
+                    "education_course": safe_row_data.get('교육과정', ''),
+                    "course_session": self._safe_convert_to_string(safe_row_data.get('교육과정_기수', '')),
+                    "course_type": safe_row_data.get('교육과정_유형', ''),
+                    "education_week": safe_row_data.get('교육주차', ''),
+                    "education_year": self._safe_convert_to_string(safe_row_data.get('교육연도', '')),
+                    "overall_satisfaction": self._safe_convert_to_float(safe_row_data.get('전반만족도', '')),
+                    "comprehensive_satisfaction": self._safe_convert_to_float(safe_row_data.get('종합만족도', '')),
+                    "course_ranking": self._safe_convert_to_int(safe_row_data.get('교육과정_순위', '')),
+                    "capacity_improvement": self._safe_convert_to_float(safe_row_data.get('역량향상도', '')),
+                    "work_application": self._safe_convert_to_float(safe_row_data.get('현업적용도', '')),
+                    "curriculum_satisfaction": self._safe_convert_to_float(safe_row_data.get('교과편성_만족도', '')),
+                    "lecture_satisfaction_avg": self._safe_convert_to_float(safe_row_data.get('교육과정별_강의만족도_평균', ''))
                 }
                 
                 processed_chunk = TextChunk(
                     content=formatted_content,
-                    metadata=new_metadata,
+                    metadata=enhanced_metadata,
                     source_id=chunk.source_id,
                     chunk_index=chunk.chunk_index
                 )
@@ -141,46 +136,45 @@ class SatisfactionLoader(BaseLoader):
         return processed_chunks
     
     def _process_subject_chunks(self, chunks: List[TextChunk]) -> List[TextChunk]:
-        """교과목 만족도 청크 처리 (기존 로직 보존)"""
+        """교과목 만족도 청크 처리 (BaseLoader 패턴 준수)"""
         processed_chunks = []
         
         for chunk in chunks:
             try:
-                # CSV 행 데이터 파싱
-                row_data = self._parse_csv_chunk(chunk.content)
+                # ✅ textifier가 저장한 원본 row_data 직접 사용
+                row_data = chunk.metadata.get("row_data", {})
                 if not row_data:
+                    logger.warning(f"No row_data found in chunk metadata: {chunk.source_id}")
                     continue
                 
-                # 필수 필드 확인 (기존 템플릿 기준)
-                required_fields = [
-                    '교육주차', '교육과정_기수', '교육과정', '교과목(강의)', 
-                    '강의만족도', '교육연도', '교과목(강의)_순위'
-                ]
-                
-                missing_fields = [field for field in required_fields if field not in row_data]
-                if missing_fields:
-                    logger.warning(f"Missing subject fields: {missing_fields}")
+                # 필수 필드 확인 및 안전한 처리
+                safe_row_data = self._validate_and_clean_subject_data(row_data, chunk.source_id)
+                if not safe_row_data:
                     continue
                 
-                # 템플릿 적용
-                formatted_content = self.SUBJECT_TEMPLATE.format(**row_data)
+                # ✅ 템플릿 직접 적용 (파싱 과정 생략)
+                try:
+                    formatted_content = self.SUBJECT_TEMPLATE.format(**safe_row_data)
+                except KeyError as e:
+                    logger.error(f"Template formatting failed for {chunk.source_id}: missing field {e}")
+                    continue
                 
-                # 메타데이터 생성 (검색 최적화)
-                new_metadata = {
+                # 검색 최적화 메타데이터 생성
+                enhanced_metadata = {
                     **chunk.metadata,
                     "satisfaction_type": "subject",
-                    "education_course": row_data.get('교육과정', ''),
-                    "course_session": row_data.get('교육과정_기수', ''),
-                    "subject_name": row_data.get('교과목(강의)', ''),
-                    "education_week": row_data.get('교육주차', ''),
-                    "education_year": row_data.get('교육연도', ''),
-                    "lecture_satisfaction": row_data.get('강의만족도', ''),
-                    "subject_ranking": row_data.get('교과목(강의)_순위', '')
+                    "education_course": safe_row_data.get('교육과정', ''),
+                    "course_session": self._safe_convert_to_string(safe_row_data.get('교육과정_기수', '')),
+                    "subject_name": safe_row_data.get('교과목(강의)', ''),
+                    "education_week": safe_row_data.get('교육주차', ''),
+                    "education_year": self._safe_convert_to_string(safe_row_data.get('교육연도', '')),
+                    "lecture_satisfaction": self._safe_convert_to_float(safe_row_data.get('강의만족도', '')),
+                    "subject_ranking": self._safe_convert_to_int(safe_row_data.get('교과목(강의)_순위', ''))
                 }
                 
                 processed_chunk = TextChunk(
                     content=formatted_content,
-                    metadata=new_metadata,
+                    metadata=enhanced_metadata,
                     source_id=chunk.source_id,
                     chunk_index=chunk.chunk_index
                 )
@@ -194,32 +188,88 @@ class SatisfactionLoader(BaseLoader):
         logger.info(f"Processed {len(processed_chunks)} subject satisfaction chunks")
         return processed_chunks
     
-    def _parse_csv_chunk(self, content: str) -> dict:
-        """
-        CSV 청크 내용을 파싱하여 딕셔너리로 변환
+    def _validate_and_clean_course_data(self, row_data: Dict[str, str], source_id: str) -> Optional[Dict[str, str]]:
+        """교육과정 데이터 검증 및 정제"""
+        required_fields = [
+            '교육주차', '교육과정_기수', '교육과정', '교육과정_유형', 
+            '교육일자', '교육장소', '교육인원', '전반만족도', '역량향상도', 
+            '현업적용도', '교과편성_만족도', '교육과정별_강의만족도_평균', 
+            '종합만족도', '교육연도', '교육과정_순위'
+        ]
         
-        Args:
-            content: "필드명: 값 | 필드명: 값" 형태의 텍스트
-            
-        Returns:
-            필드명-값 딕셔너리
-        """
+        # 필수 필드 확인
+        missing_fields = [field for field in required_fields if field not in row_data or not str(row_data[field]).strip()]
+        
+        if missing_fields:
+            logger.warning(f"Missing/empty course fields in {source_id}: {missing_fields}")
+            # 누락된 필드에 기본값 할당 (완전 제외보다는 유연한 처리)
+            for field in missing_fields:
+                if field in ['교육과정', '교육과정_유형', '교육주차']:
+                    row_data[field] = '정보없음'
+                elif field in ['교육일자', '교육장소']:
+                    row_data[field] = '미상'
+                elif field in ['교육인원', '교육과정_기수', '교육연도', '교육과정_순위']:
+                    row_data[field] = '0'
+                else:  # 만족도 관련 필드들
+                    row_data[field] = '0.0'
+        
+        # 데이터 정제
+        clean_data = {}
+        for key, value in row_data.items():
+            clean_value = str(value).strip()
+            clean_data[key] = clean_value if clean_value else '정보없음'
+        
+        return clean_data
+    
+    def _validate_and_clean_subject_data(self, row_data: Dict[str, str], source_id: str) -> Optional[Dict[str, str]]:
+        """교과목 데이터 검증 및 정제"""
+        required_fields = [
+            '교육주차', '교육과정_기수', '교육과정', '교과목(강의)', 
+            '강의만족도', '교육연도', '교과목(강의)_순위'
+        ]
+        
+        # 필수 필드 확인
+        missing_fields = [field for field in required_fields if field not in row_data or not str(row_data[field]).strip()]
+        
+        if missing_fields:
+            logger.warning(f"Missing/empty subject fields in {source_id}: {missing_fields}")
+            # 누락된 필드에 기본값 할당
+            for field in missing_fields:
+                if field in ['교육과정', '교과목(강의)', '교육주차']:
+                    row_data[field] = '정보없음'
+                elif field in ['교육과정_기수', '교육연도', '교과목(강의)_순위']:
+                    row_data[field] = '0'
+                else:  # 강의만족도
+                    row_data[field] = '0.0'
+        
+        # 데이터 정제
+        clean_data = {}
+        for key, value in row_data.items():
+            clean_value = str(value).strip()
+            clean_data[key] = clean_value if clean_value else '정보없음'
+        
+        return clean_data
+    
+    def _safe_convert_to_float(self, value: Any) -> float:
+        """안전한 float 변환"""
         try:
-            data = {}
-            
-            # " | "로 필드 분리
-            fields = content.split(" | ")
-            
-            for field in fields:
-                if ":" in field:
-                    key, value = field.split(":", 1)
-                    data[key.strip()] = value.strip()
-            
-            return data
-            
-        except Exception as e:
-            logger.error(f"Failed to parse CSV chunk content: {e}")
-            return {}
+            return float(str(value).strip()) if value else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+    
+    def _safe_convert_to_int(self, value: Any) -> int:
+        """안전한 int 변환"""
+        try:
+            return int(float(str(value).strip())) if value else 0
+        except (ValueError, TypeError):
+            return 0
+    
+    def _safe_convert_to_string(self, value: Any) -> str:
+        """안전한 string 변환"""
+        try:
+            return str(value).strip() if value else ''
+        except:
+            return ''
     
     def get_satisfaction_statistics(self) -> dict:
         """만족도 통계 정보 반환 (모니터링용)"""
@@ -233,6 +283,8 @@ class SatisfactionLoader(BaseLoader):
             "total_files": metadata.total_files,
             "last_build": metadata.last_build.isoformat(),
             "supported_types": ["course", "subject"],
+            "templates_preserved": True,
+            "baseloader_compliant": True,
             "templates": {
                 "course_fields": [
                     "교육주차", "교육과정_기수", "교육과정", "교육과정_유형",
@@ -260,7 +312,8 @@ class SatisfactionLoader(BaseLoader):
                 "filter": {"satisfaction_type": "course"},
                 "searchable_fields": [
                     "education_course", "course_type", "education_year",
-                    "overall_satisfaction", "comprehensive_satisfaction"
+                    "overall_satisfaction", "comprehensive_satisfaction",
+                    "capacity_improvement", "work_application"
                 ]
             }
         elif satisfaction_type == "subject":
@@ -268,13 +321,13 @@ class SatisfactionLoader(BaseLoader):
                 "filter": {"satisfaction_type": "subject"},
                 "searchable_fields": [
                     "education_course", "subject_name", "education_year",
-                    "lecture_satisfaction"
+                    "lecture_satisfaction", "subject_ranking"
                 ]
             }
         else:
             return {"error": "Invalid satisfaction_type. Use 'course' or 'subject'"}
 
-# 편의 함수들
+# 편의 함수들 (기존 API 호환성 유지)
 def build_satisfaction_index(force_rebuild: bool = False) -> bool:
     """통합 만족도 인덱스 빌드"""
     loader = SatisfactionLoader()
