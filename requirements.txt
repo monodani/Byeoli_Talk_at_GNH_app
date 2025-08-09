@@ -14,15 +14,24 @@ rank-bm25==0.2.2           # BM25 retriever
 pypdf==5.1.0               # PDF text extraction
 Pillow==10.4.0             # image utils
 pytesseract==0.3.13        # OCR (system tesseract required)
+tiktoken==0.7.0            # tokenizer for chunking (1000t/100 overlap)
 
 # --- Embeddings / Vector ---
 faiss-cpu==1.8.0.post1
 sentence-transformers==3.0.1  # fallback embeddings
-openai==1.37.1                # if using OpenAI Embeddings
+openai==1.37.1                # OpenAI Embeddings/LLM
+
+# --- Validation / Watch / Retry ---
+jsonschema==4.21.1         # schema validation for CSV/JSON
+watchdog==4.0.0            # file change watch (hotswap)
+tenacity==8.3.0            # retries with backoff
 
 # --- App ---
 streamlit==1.38.0
-uvicorn==0.30.5              # optional local API serving
+uvicorn==0.30.5            # optional local API serving
+
+# --- Perf / Serialization (optional but recommended) ---
+orjson==3.10.3             # fast JSON for logs/cache
 
 # --- Quality ---
 ruff==0.5.7
