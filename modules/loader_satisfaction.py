@@ -189,87 +189,41 @@ class SatisfactionLoader(BaseLoader):
         return processed_chunks
     
     def _validate_and_clean_course_data(self, row_data: Dict[str, str], source_id: str) -> Optional[Dict[str, str]]:
-        """교육과정 데이터 검증 및 정제"""
-        required_fields = [
-            '교육주차', '교육과정_기수', '교육과정', '교육과정_유형', 
-            '교육일자', '교육장소', '교육인원', '전반만족도', '역량향상도', 
-            '현업적용도', '교과편성_만족도', '교육과정별_강의만족도_평균', 
-            '종합만족도', '교육연도', '교육과정_순위'
-        ]
+        """교육과정 데이터 검증 및 정제 (validation_utils 활용)"""
+        from utils.validation_utils import satisfaction_validator
         
-        # 필수 필드 확인
-        missing_fields = [field for field in required_fields if field not in row_data or not str(row_data[field]).strip()]
-        
-        if missing_fields:
-            logger.warning(f"Missing/empty course fields in {source_id}: {missing_fields}")
-            # 누락된 필드에 기본값 할당 (완전 제외보다는 유연한 처리)
-            for field in missing_fields:
-                if field in ['교육과정', '교육과정_유형', '교육주차']:
-                    row_data[field] = '정보없음'
-                elif field in ['교육일자', '교육장소']:
-                    row_data[field] = '미상'
-                elif field in ['교육인원', '교육과정_기수', '교육연도', '교육과정_순위']:
-                    row_data[field] = '0'
-                else:  # 만족도 관련 필드들
-                    row_data[field] = '0.0'
-        
-        # 데이터 정제
-        clean_data = {}
-        for key, value in row_data.items():
-            clean_value = str(value).strip()
-            clean_data[key] = clean_value if clean_value else '정보없음'
-        
-        return clean_data
+        try:
+            clean_data = satisfaction_validator.validate_and_clean_course_data(row_data, source_id)
+            return clean_data
+        except Exception as e:
+            logger.error(f"Course data validation failed for {source_id}: {e}")
+            return None
     
     def _validate_and_clean_subject_data(self, row_data: Dict[str, str], source_id: str) -> Optional[Dict[str, str]]:
-        """교과목 데이터 검증 및 정제"""
-        required_fields = [
-            '교육주차', '교육과정_기수', '교육과정', '교과목(강의)', 
-            '강의만족도', '교육연도', '교과목(강의)_순위'
-        ]
+        """교과목 데이터 검증 및 정제 (validation_utils 활용)"""
+        from utils.validation_utils import satisfaction_validator
         
-        # 필수 필드 확인
-        missing_fields = [field for field in required_fields if field not in row_data or not str(row_data[field]).strip()]
-        
-        if missing_fields:
-            logger.warning(f"Missing/empty subject fields in {source_id}: {missing_fields}")
-            # 누락된 필드에 기본값 할당
-            for field in missing_fields:
-                if field in ['교육과정', '교과목(강의)', '교육주차']:
-                    row_data[field] = '정보없음'
-                elif field in ['교육과정_기수', '교육연도', '교과목(강의)_순위']:
-                    row_data[field] = '0'
-                else:  # 강의만족도
-                    row_data[field] = '0.0'
-        
-        # 데이터 정제
-        clean_data = {}
-        for key, value in row_data.items():
-            clean_value = str(value).strip()
-            clean_data[key] = clean_value if clean_value else '정보없음'
-        
-        return clean_data
+        try:
+            clean_data = satisfaction_validator.validate_and_clean_subject_data(row_data, source_id)
+            return clean_data
+        except Exception as e:
+            logger.error(f"Subject data validation failed for {source_id}: {e}")
+            return None
     
     def _safe_convert_to_float(self, value: Any) -> float:
-        """안전한 float 변환"""
-        try:
-            return float(str(value).strip()) if value else 0.0
-        except (ValueError, TypeError):
-            return 0.0
+        """안전한 float 변환 (validation_utils 활용)"""
+        from utils.validation_utils import satisfaction_validator
+        return satisfaction_validator.safe_float_convert(value)
     
     def _safe_convert_to_int(self, value: Any) -> int:
-        """안전한 int 변환"""
-        try:
-            return int(float(str(value).strip())) if value else 0
-        except (ValueError, TypeError):
-            return 0
+        """안전한 int 변환 (validation_utils 활용)"""
+        from utils.validation_utils import satisfaction_validator
+        return satisfaction_validator.safe_int_convert(value)
     
     def _safe_convert_to_string(self, value: Any) -> str:
-        """안전한 string 변환"""
-        try:
-            return str(value).strip() if value else ''
-        except:
-            return ''
+        """안전한 string 변환 (validation_utils 활용)"""
+        from utils.validation_utils import satisfaction_validator
+        return satisfaction_validator.clean_text_field(str(value) if value else '')
     
     def get_satisfaction_statistics(self) -> dict:
         """만족도 통계 정보 반환 (모니터링용)"""
