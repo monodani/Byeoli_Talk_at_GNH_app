@@ -1,23 +1,56 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Subject Satisfaction CSV Schema",
+  "title": "Subject Satisfaction CSV Schema - BaseLoader Compatible",
+  "description": "Flexible schema for subject_satisfaction.csv maintaining existing compatibility",
   "type": "object",
   "additionalProperties": true,
   "properties": {
-    "교육주차": { "type": "string", "minLength": 2, "pattern": "^\s?\d{1,2}월\s\d주차$" },
+    "교육주차": { 
+      "type": "string", 
+      "minLength": 2,
+      "description": "교육 실시 주차 (예: 3월 3주차)"
+    },
     "교육과정_기수": {
       "oneOf": [
         { "type": "integer", "minimum": 1 },
-        { "type": "string", "pattern": "^\d+$" }
-      ]
+        { "type": "string", "pattern": "^\\d+$" }
+      ],
+      "description": "교육과정 기수 (정수 또는 문자열 숫자)"
     },
-    "교육과정": { "type": "string", "minLength": 1 },
-    "교과목(강의)": { "type": "string", "minLength": 1 },
-    "강의만족도": { "type": "number", "minimum": 0, "maximum": 5 },
-    "교육연도": { "type": "integer", "minimum": 2000, "maximum": 2100 },
-    "교과목(강의)_순위": { "type": "integer", "minimum": 1 }
+    "교육과정": { 
+      "type": "string", 
+      "minLength": 1,
+      "description": "교육과정명"
+    },
+    "교과목(강의)": { 
+      "type": "string", 
+      "minLength": 1,
+      "description": "개별 교과목 또는 강의명"
+    },
+    "강의만족도": { 
+      "oneOf": [
+        { "type": "number", "minimum": 0, "maximum": 5 },
+        { "type": "string", "pattern": "^\\d*\\.?\\d+$" }
+      ],
+      "description": "해당 교과목에 대한 강의만족도 점수"
+    },
+    "교육연도": { 
+      "oneOf": [
+        { "type": "integer", "minimum": 2000, "maximum": 2100 },
+        { "type": "string", "pattern": "^20\\d{2}$" }
+      ],
+      "description": "교육 실시 연도"
+    },
+    "교과목(강의)_순위": { 
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "pattern": "^\\d+$" }
+      ],
+      "description": "해당 연도 교과목 만족도 순위"
+    }
   },
   "required": [
-    "교육주차", "교육과정_기수", "교육과정", "교과목(강의)", "강의만족도", "교육연도", "교과목(강의)_순위"
+    "교육주차", "교육과정_기수", "교육과정", "교과목(강의)", 
+    "강의만족도", "교육연도", "교과목(강의)_순위"
   ]
 }
