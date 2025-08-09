@@ -15,6 +15,7 @@ __pycache__/
 cache/
 logs/
 vectorstores/**
+reports/            # ← 성능/메트릭 산출물 무시
 .openai/
 
 # streamlit
