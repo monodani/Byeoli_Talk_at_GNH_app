@@ -16,7 +16,7 @@ import logging
 import openai
 from dataclasses import dataclass
 
-from .config import get_config
+from .config import get_config, get_keyword_rules, get_stop_words
 from .contracts import QueryRequest, HandlerResponse, ConversationContext
 from .logging_utils import get_logger, log_timer
 
@@ -72,68 +72,55 @@ class RouterEngine:
             # 'fallback': handle_fallback_query,
         }
         
-        # 핸들러별 컨피던스 임계값
-        self.confidence_thresholds = {
-            'general': 0.70,
-            'publish': 0.74,
-            'satisfaction': 0.68,
-            'cyber': 0.66,
-            'menu': 0.64,
-            'notice': 0.62,
-            'fallback': 0.00
-        }
+        # config에서 설정값 로드
+        self.confidence_thresholds = config.confidence_thresholds
+        self.keyword_rules = get_keyword_rules()
+        self.stop_words = get_stop_words()
         
         # 타이밍 설정
-        self.CANDIDATE_SELECTION_TIMEOUT = 0.4  # 후보선정 타임아웃
-        self.HANDLER_EXECUTION_TIMEOUT = 1.1    # 핸들러 실행 타임아웃
-        self.TOTAL_TIMEOUT = 1.5                # 전체 타임아웃
+        self.CANDIDATE_SELECTION_TIMEOUT = config.ROUTER_CANDIDATE_SELECTION_TIMEOUT
+        self.HANDLER_EXECUTION_TIMEOUT = config.ROUTER_HANDLER_EXECUTION_TIMEOUT
+        self.TOTAL_TIMEOUT = config.ROUTER_TOTAL_TIMEOUT
         
         self._initialized = True
         logger.info("RouterEngine initialized")
     
     def _extract_keywords_score(self, query: str) -> Dict[str, float]:
         """규칙 기반 키워드 매칭으로 핸들러별 점수 계산"""
-        query_lower = query.lower()
+        query_lower = query.lower().strip()
         scores = {handler_id: 0.0 for handler_id in self.handlers.keys()}
         
-        # config.py에서 가져올 키워드 사전 (임시 하드코딩)
-        keyword_rules = {
-            'general': {
-                '학칙': 0.9, '규정': 0.85, '전결': 0.8, '운영원칙': 0.8, 
-                '연락처': 0.85, '전화번호': 0.85, '담당자': 0.8, '업무': 0.7
-            },
-            'publish': {
-                '계획서': 0.9, '평가서': 0.9, '2025계획': 0.95, '2024평가': 0.95,
-                '교육훈련계획': 0.9, '종합평가': 0.9, '발행물': 0.8
-            },
-            'satisfaction': {
-                '만족도': 0.95, '평가': 0.8, '교육과정': 0.7, '교과목': 0.7,
-                '수강생': 0.7, '강의': 0.6, '점수': 0.6
-            },
-            'cyber': {
-                '사이버': 0.9, '온라인': 0.85, '민간위탁': 0.8, '나라배움터': 0.8,
-                '교육일정': 0.85, '수강신청': 0.8, '이러닝': 0.8
-            },
-            'menu': {
-                '식단': 0.95, '메뉴': 0.9, '식당': 0.85, '점심': 0.8, '급식': 0.8,
-                '구내식당': 0.9, '식사': 0.7
-            },
-            'notice': {
-                '공지': 0.9, '알림': 0.85, '안내': 0.8, '공고': 0.85,
-                '최신': 0.7, '새로운': 0.6
-            }
-        }
+        # 불용어 체크 (전체 쿼리가 불용어만 포함된 경우 스킵)
+        query_words = set(query_lower.split())
+        if query_words.issubset(self.stop_words):
+            logger.debug("Query contains only stop words, using uniform low scores")
+            return {handler_id: 0.1 for handler_id in self.handlers.keys()}
         
-        # 키워드 매칭 점수 계산
-        for handler_id, keywords in keyword_rules.items():
+        # 각 핸들러별 키워드 매칭
+        for handler_id, keywords in self.keyword_rules.items():
+            if handler_id not in self.handlers:
+                continue
+                
             max_score = 0.0
+            matched_keywords = []
+            
             for keyword, weight in keywords.items():
                 if keyword in query_lower:
                     max_score = max(max_score, weight)
+                    matched_keywords.append((keyword, weight))
+            
             scores[handler_id] = max_score
+            
+            if matched_keywords:
+                logger.debug(f"{handler_id}: matched keywords {matched_keywords}, final score: {max_score:.3f}")
         
-        # fallback은 항상 0.1로 설정 (기본값)
-        scores['fallback'] = 0.1
+        # fallback은 항상 최소 점수 보장 (다른 핸들러가 모두 0일 때를 위해)
+        if 'fallback' in scores:
+            scores['fallback'] = max(scores['fallback'], 0.1)
+        
+        # 디버그 로그
+        top_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:3]
+        logger.debug(f"Keyword matching top scores: {top_scores}")
         
         return scores
     
@@ -169,7 +156,7 @@ class RouterEngine:
         try:
             with log_timer("llm_classification"):
                 response = self.openai_client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=config.OPENAI_MODEL_ROUTER,  # gpt-4o-mini
                     messages=[
                         {"role": "system", "content": "You are an intent classifier. Return only valid JSON."},
                         {"role": "user", "content": prompt}
@@ -234,11 +221,12 @@ class RouterEngine:
             candidates.sort(key=lambda x: (x.final_score, x.rule_score), reverse=True)
             top_candidates = candidates[:2]
             
-            # 5. fallback 보장 (Top-2에 포함되지 않았다면 강제 추가)
+            # 5. fallback 보장 (Top-2에 포함되지 않았고, 다른 후보들의 점수가 낮다면 강제 추가)
             if not any(c.handler_id == 'fallback' for c in top_candidates):
-                fallback_candidate = next(c for c in candidates if c.handler_id == 'fallback')
-                if len(top_candidates) == 2 and top_candidates[1].final_score < 0.3:
+                fallback_candidate = next((c for c in candidates if c.handler_id == 'fallback'), None)
+                if fallback_candidate and len(top_candidates) == 2 and top_candidates[1].final_score < 0.3:
                     top_candidates[1] = fallback_candidate
+                    logger.debug("Replaced low-score candidate with fallback")
             
             elapsed = time.time() - start_time
             logger.info(f"Selected candidates in {elapsed:.3f}s: {[(c.handler_id, c.final_score) for c in top_candidates]}")
@@ -247,7 +235,7 @@ class RouterEngine:
             
         except Exception as e:
             logger.error(f"Candidate selection failed: {e}")
-            # 긴급 fallback: general + fallback
+            # 긴급 fallback: general + fallback (하드코딩 점수)
             return [
                 HandlerCandidate('general', 0.5, 0.5, 0.5),
                 HandlerCandidate('fallback', 0.1, 0.1, 0.1)
