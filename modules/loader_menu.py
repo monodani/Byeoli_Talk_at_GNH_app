@@ -50,7 +50,8 @@ class ChatGPTImageProcessor:
         
     def _get_api_key(self) -> str:
         """환경변수에서 OpenAI API 키 안전하게 로드"""
-        api_key = config.get('OPENAI_API_KEY')
+        # config.get() 대신 속성에 직접 접근하도록 수정
+        api_key = config.OPENAI_API_KEY
         if not api_key:
             raise ValueError(
                 "OPENAI_API_KEY가 설정되지 않았습니다. "
