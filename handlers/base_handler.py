@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - base_handler 기반 클래스
+경상남도인재개발원 RAG 챗봇 - base_handler 기반 클래스 (IndexManager 통합)
 
 모든 핸들러의 공통 기능을 제공하는 추상 베이스 클래스:
+- IndexManager 싱글톤을 활용한 중앙집중식 벡터스토어 관리
 - 하이브리드 검색 (FAISS + BM25 + RRF)
 - 컨피던스 계산 (단순화된 버전)
 - Citation 추출 (200자 snippet)
 - 스트리밍 응답 (50토큰 단위)
 - 표준 인터페이스 (QueryRequest → HandlerResponse)
+
+주요 개선사항:
+✅ IndexManager 싱글톤을 통한 벡터스토어 접근
+✅ FAISS 매개변수 오타 수정 (allow_dangerous_deserialization)
+✅ 중복 로드 방지 및 성능 최적화
+✅ 핫스왑 지원 (파일 변경 시 자동 업데이트)
 """
 
 import logging
@@ -22,6 +29,7 @@ from datetime import datetime
 from utils.config import config
 from utils.contracts import QueryRequest, HandlerResponse, Citation
 from utils.textifier import TextChunk
+from utils.index_manager import get_index_manager  # ✅ IndexManager import 추가
 
 # 외부 라이브러리
 import numpy as np
@@ -36,9 +44,10 @@ logger = logging.getLogger(__name__)
 
 class base_handler(ABC):
     """
-    모든 핸들러의 기반 클래스
+    모든 핸들러의 기반 클래스 (IndexManager 통합)
     
     주요 기능:
+    - IndexManager를 통한 중앙집중식 벡터스토어 관리
     - 하이브리드 검색 (FAISS + BM25 + RRF)
     - 컨피던스 기반 파이프라인
     - Citation 자동 추출
@@ -47,7 +56,7 @@ class base_handler(ABC):
     
     def __init__(self, domain: str, index_name: str, confidence_threshold: float):
         """
-        base_Handler 초기화
+        base_Handler 초기화 (IndexManager 통합)
         
         Args:
             domain: 도메인 이름 (예: "satisfaction")
@@ -58,10 +67,10 @@ class base_handler(ABC):
         self.index_name = index_name
         self.confidence_threshold = confidence_threshold
         
-        # 벡터스토어 경로 설정
-        self.vectorstore_dir = config.ROOT_DIR / "vectorstores" / f"vectorstore_{domain}" if domain != "satisfaction" else config.ROOT_DIR / "vectorstores" / "vectorstore_unified_satisfaction"
+        # ✅ IndexManager 싱글톤 참조
+        self.index_manager = get_index_manager()
         
-        # 임베딩 모델 초기화
+        # 임베딩 모델 초기화 (IndexManager에서 공유되지만 핸들러별로도 유지)
         self.embeddings = OpenAIEmbeddings()
         
         # LLM 초기화
@@ -71,51 +80,64 @@ class base_handler(ABC):
             streaming=True
         )
         
-        # 벡터스토어 및 BM25 (지연 로딩)
-        self.vectorstore = None
-        self.bm25 = None
-        self.documents = None
+        # ✅ 벡터스토어는 IndexManager에서 관리 (로컬 참조 제거)
+        # self.vectorstore = None  # 제거됨
+        # self.bm25 = None         # 제거됨 
+        # self.documents = None    # 제거됨
         
-        logger.info(f"✨ {domain.upper()} Handler 초기화 완료 (θ={confidence_threshold})")
+        logger.info(f"✨ {domain.upper()} Handler 초기화 완료 (θ={confidence_threshold}, IndexManager 통합)")
     
-    def _load_vectorstore(self) -> bool:
-        """벡터스토어 로드 (지연 로딩)"""
-        if self.vectorstore is not None:
-            return True
-            
+    def _get_vectorstore(self) -> Optional[FAISS]:
+        """
+        ✅ IndexManager를 통해 벡터스토어 획득 (중앙집중식)
+        
+        Returns:
+            Optional[FAISS]: 벡터스토어 인스턴스 또는 None
+        """
         try:
-            logger.info(f"📚 {self.domain} 벡터스토어 로드 중...")
-            
-            self.vectorstore = FAISS.load_local(
-                folder_path=str(self.vectorstore_dir),
-                embeddings=self.embeddings,
-                allow_dangerous_deserialization=True,
-                index_name=self.index_name
-            )
-            
-            # 문서 메타데이터 추출 (BM25용)
-            self.documents = []
-            for i in range(len(self.vectorstore.docstore._dict)):
-                doc = self.vectorstore.docstore._dict.get(str(i))
-                if doc:
-                    self.documents.append(doc.page_content)
-            
-            # BM25 인덱스 구축
-            if self.documents:
-                tokenized_docs = [doc.split() for doc in self.documents]
-                self.bm25 = BM25Okapi(tokenized_docs)
-                logger.info(f"✅ BM25 인덱스 구축 완료: {len(self.documents)}개 문서")
-            
-            logger.info(f"✅ {self.domain} 벡터스토어 로드 완료")
-            return True
-            
+            vectorstore = self.index_manager.get_vectorstore(self.domain)
+            if vectorstore is None:
+                logger.warning(f"⚠️ {self.domain} 벡터스토어를 찾을 수 없습니다")
+                return None
+            return vectorstore
         except Exception as e:
-            logger.error(f"❌ {self.domain} 벡터스토어 로드 실패: {e}")
-            return False
+            logger.error(f"❌ {self.domain} 벡터스토어 획득 실패: {e}")
+            return None
+    
+    def _get_bm25(self) -> Optional[BM25Okapi]:
+        """
+        ✅ IndexManager를 통해 BM25 인덱스 획득
+        
+        Returns:
+            Optional[BM25Okapi]: BM25 인덱스 또는 None
+        """
+        try:
+            bm25 = self.index_manager.get_bm25(self.domain)
+            if bm25 is None:
+                logger.warning(f"⚠️ {self.domain} BM25 인덱스를 찾을 수 없습니다")
+                return None
+            return bm25
+        except Exception as e:
+            logger.error(f"❌ {self.domain} BM25 인덱스 획득 실패: {e}")
+            return None
+    
+    def _get_documents(self) -> List[str]:
+        """
+        ✅ IndexManager를 통해 문서 목록 획득
+        
+        Returns:
+            List[str]: 문서 텍스트 목록
+        """
+        try:
+            documents = self.index_manager.get_documents(self.domain)
+            return documents if documents else []
+        except Exception as e:
+            logger.error(f"❌ {self.domain} 문서 목록 획득 실패: {e}")
+            return []
     
     def hybrid_search(self, query: str, k: int = 10) -> List[Tuple[str, float, Dict[str, Any]]]:
         """
-        하이브리드 검색 (FAISS + BM25 + RRF)
+        ✅ 하이브리드 검색 (FAISS + BM25 + RRF) - IndexManager 활용
         
         Args:
             query: 검색 쿼리
@@ -124,139 +146,174 @@ class base_handler(ABC):
         Returns:
             List of (text, score, metadata) tuples
         """
-        if not self._load_vectorstore():
+        # IndexManager에서 벡터스토어 및 BM25 획득
+        vectorstore = self._get_vectorstore()
+        bm25 = self._get_bm25()
+        documents = self._get_documents()
+        
+        if not vectorstore:
+            logger.warning(f"⚠️ {self.domain} 벡터스토어 없음, 빈 결과 반환")
             return []
         
         try:
             # 1. FAISS 검색
-            faiss_results = self.vectorstore.similarity_search_with_score(query, k=k)
+            faiss_results = vectorstore.similarity_search_with_score(query, k=k)
             faiss_docs = [(doc.page_content, score, doc.metadata) for doc, score in faiss_results]
             
-            # 2. BM25 검색
+            # 2. BM25 검색 (사용 가능한 경우)
             bm25_docs = []
-            if self.bm25:
+            if bm25 and documents:
                 tokenized_query = query.split()
-                bm25_scores = self.bm25.get_scores(tokenized_query)
+                bm25_scores = bm25.get_scores(tokenized_query)
                 
                 # 상위 k개 BM25 결과 선택
                 top_indices = np.argsort(bm25_scores)[-k:][::-1]
                 for idx in top_indices:
-                    if idx < len(self.documents):
+                    if idx < len(documents):
                         # 메타데이터 찾기
                         doc_id = str(idx)
                         metadata = {}
-                        if doc_id in self.vectorstore.docstore._dict:
-                            metadata = self.vectorstore.docstore._dict[doc_id].metadata
+                        if doc_id in vectorstore.docstore._dict:
+                            metadata = vectorstore.docstore._dict[doc_id].metadata
                         
-                        bm25_docs.append((self.documents[idx], bm25_scores[idx], metadata))
+                        bm25_docs.append((documents[idx], float(bm25_scores[idx]), metadata))
             
-            # 3. RRF 재랭킹 (단순화)
-            # FAISS 0.6 + BM25 0.4 가중치
-            combined_results = {}
+            # 3. RRF (Reciprocal Rank Fusion) 적용
+            combined_results = self._apply_rrf(faiss_docs, bm25_docs, k=k)
             
-            # FAISS 결과 처리 (점수 정규화)
-            max_faiss_score = max([score for _, score, _ in faiss_docs]) if faiss_docs else 1.0
-            for text, score, metadata in faiss_docs:
-                normalized_score = score / max_faiss_score
-                text_hash = hashlib.md5(text.encode()).hexdigest()
-                combined_results[text_hash] = {
-                    'text': text,
-                    'metadata': metadata,
-                    'faiss_score': normalized_score,
-                    'bm25_score': 0.0
-                }
-            
-            # BM25 결과 처리 (점수 정규화)
-            max_bm25_score = max([score for _, score, _ in bm25_docs]) if bm25_docs else 1.0
-            for text, score, metadata in bm25_docs:
-                normalized_score = score / max_bm25_score if max_bm25_score > 0 else 0
-                text_hash = hashlib.md5(text.encode()).hexdigest()
-                
-                if text_hash in combined_results:
-                    combined_results[text_hash]['bm25_score'] = normalized_score
-                else:
-                    combined_results[text_hash] = {
-                        'text': text,
-                        'metadata': metadata,
-                        'faiss_score': 0.0,
-                        'bm25_score': normalized_score
-                    }
-            
-            # 최종 점수 계산 및 정렬
-            final_results = []
-            for item in combined_results.values():
-                final_score = (item['faiss_score'] * 0.6) + (item['bm25_score'] * 0.4)
-                final_results.append((item['text'], final_score, item['metadata']))
-            
-            # 점수 기준 내림차순 정렬
-            final_results.sort(key=lambda x: x[1], reverse=True)
-            
-            logger.info(f"🔍 하이브리드 검색 완료: {len(final_results)}개 결과")
-            return final_results[:k]
+            logger.debug(f"🔍 {self.domain} 하이브리드 검색 완료: FAISS {len(faiss_docs)}, BM25 {len(bm25_docs)}, 결합 {len(combined_results)}")
+            return combined_results
             
         except Exception as e:
-            logger.error(f"❌ 하이브리드 검색 실패: {e}")
+            logger.error(f"❌ {self.domain} 하이브리드 검색 실패: {e}")
             return []
     
-    def calculate_confidence(self, search_results: List[Tuple[str, float, Dict[str, Any]]]) -> float:
+    def _apply_rrf(self, faiss_docs: List[Tuple[str, float, Dict]], 
+                   bm25_docs: List[Tuple[str, float, Dict]], k: int = 60) -> List[Tuple[str, float, Dict]]:
         """
-        컨피던스 계산 (단순화된 버전)
+        RRF (Reciprocal Rank Fusion) 적용
         
         Args:
-            search_results: 검색 결과 리스트
+            faiss_docs: FAISS 검색 결과
+            bm25_docs: BM25 검색 결과
+            k: RRF 파라미터 (기본값: 60)
             
         Returns:
-            컨피던스 점수 (0.0 ~ 1.0)
+            List: RRF 점수로 정렬된 결합 결과
+        """
+        doc_scores = {}
+        
+        # FAISS 점수 (거리 기반이므로 역순으로 랭킹)
+        for rank, (text, score, metadata) in enumerate(faiss_docs):
+            doc_key = text[:100]  # 텍스트 앞부분을 키로 사용
+            rrf_score = 1.0 / (k + rank + 1)
+            doc_scores[doc_key] = {
+                'text': text,
+                'metadata': metadata,
+                'rrf_score': rrf_score,
+                'faiss_score': score
+            }
+        
+        # BM25 점수 추가
+        for rank, (text, score, metadata) in enumerate(bm25_docs):
+            doc_key = text[:100]
+            rrf_score = 1.0 / (k + rank + 1)
+            
+            if doc_key in doc_scores:
+                # 기존 문서면 RRF 점수 합산
+                doc_scores[doc_key]['rrf_score'] += rrf_score
+                doc_scores[doc_key]['bm25_score'] = score
+            else:
+                # 새 문서면 추가
+                doc_scores[doc_key] = {
+                    'text': text,
+                    'metadata': metadata,
+                    'rrf_score': rrf_score,
+                    'bm25_score': score
+                }
+        
+        # RRF 점수 기준 정렬 후 상위 결과 반환
+        sorted_docs = sorted(doc_scores.values(), key=lambda x: x['rrf_score'], reverse=True)
+        
+        result = []
+        for doc in sorted_docs[:len(faiss_docs)]:  # 원래 요청한 k개만큼 반환
+            result.append((doc['text'], doc['rrf_score'], doc['metadata']))
+        
+        return result
+    
+    def calculate_confidence(self, search_results: List[Tuple[str, float, Dict[str, Any]]], 
+                           query: str) -> float:
+        """
+        컨피던스 점수 계산 (단순화된 버전)
+        
+        Args:
+            search_results: 검색 결과
+            query: 원본 쿼리
+            
+        Returns:
+            float: 컨피던스 점수 (0.0 - 1.0)
         """
         if not search_results:
             return 0.0
         
-        # 상위 3개 결과의 평균 점수 사용
+        # 상위 3개 결과의 평균 점수
         top_scores = [score for _, score, _ in search_results[:3]]
-        avg_score = sum(top_scores) / len(top_scores)
+        avg_score = sum(top_scores) / len(top_scores) if top_scores else 0.0
         
-        # 0-1 범위로 정규화
-        confidence = min(max(avg_score, 0.0), 1.0)
+        # 문서 다양성 보너스 (서로 다른 소스에서 온 경우)
+        sources = set()
+        for _, _, metadata in search_results[:3]:
+            source = metadata.get('source', 'unknown')
+            sources.add(source)
         
-        logger.debug(f"📊 컨피던스 계산: {confidence:.3f} (상위 {len(top_scores)}개 평균)")
+        diversity_bonus = min(len(sources) * 0.1, 0.3)  # 최대 0.3 보너스
+        
+        # 쿼리 유형 매칭 보너스 (도메인별 키워드 포함 시)
+        query_lower = query.lower()
+        domain_keywords = self._get_domain_keywords()
+        keyword_matches = sum(1 for kw in domain_keywords if kw in query_lower)
+        keyword_bonus = min(keyword_matches * 0.05, 0.2)  # 최대 0.2 보너스
+        
+        # 최종 컨피던스 계산
+        confidence = min(avg_score + diversity_bonus + keyword_bonus, 1.0)
+        
+        logger.debug(f"🎯 {self.domain} 컨피던스: {confidence:.3f} (기본: {avg_score:.3f}, 다양성: {diversity_bonus:.3f}, 키워드: {keyword_bonus:.3f})")
         return confidence
     
-    def extract_citations(self, search_results: List[Tuple[str, float, Dict[str, Any]]], max_citations: int = 3) -> List[Citation]:
+    def _get_domain_keywords(self) -> List[str]:
+        """도메인별 키워드 반환 (컨피던스 계산용)"""
+        domain_keywords = {
+            'satisfaction': ['만족도', '평가', '설문', '조사', '점수', '순위'],
+            'general': ['학칙', '규정', '전결', '연락처', '담당자', '부서'],
+            'menu': ['식단', '메뉴', '구내식당', '급식', '식사'],
+            'cyber': ['사이버교육', '온라인교육', '나라배움터', '민간위탁'],
+            'publish': ['교육계획', '훈련계획', '평가서', '계획서'],
+            'notice': ['공지', '안내', '알림', '공지사항', '새소식']
+        }
+        return domain_keywords.get(self.domain, [])
+    
+    def extract_citations(self, search_results: List[Tuple[str, float, Dict[str, Any]]], 
+                         max_citations: int = 3) -> List[Citation]:
         """
-        Citation 추출 (200자 snippet)
+        검색 결과에서 Citation 추출
         
         Args:
             search_results: 검색 결과
             max_citations: 최대 Citation 수
             
         Returns:
-            Citation 객체 리스트
+            List[Citation]: Citation 목록
         """
         citations = []
         
         for i, (text, score, metadata) in enumerate(search_results[:max_citations]):
-            # source_id 생성
-            source_file = metadata.get('source_file', 'unknown')
-            if 'page_number' in metadata:
-                source_id = f"{self.domain}/{source_file}#page_{metadata['page_number']}"
-            elif 'row_number' in metadata:
-                source_id = f"{self.domain}/{source_file}#row_{metadata['row_number']}"
-            else:
-                source_id = f"{self.domain}/{source_file}#chunk_{i}"
+            # 소스 ID 생성
+            source = metadata.get('source', 'unknown')
+            page = metadata.get('page', '')
+            source_id = f"{source}#{page}" if page else source
             
-            # snippet 생성 (200자 + 문장 단위 절단)
-            snippet = text[:200]
-            if len(text) > 200:
-                # 마지막 문장 경계에서 자르기
-                last_period = snippet.rfind('.')
-                last_question = snippet.rfind('?')
-                last_exclamation = snippet.rfind('!')
-                
-                cut_point = max(last_period, last_question, last_exclamation)
-                if cut_point > 100:  # 너무 짧지 않도록
-                    snippet = snippet[:cut_point + 1]
-                else:
-                    snippet += "..."
+            # 스니펫 생성 (200자 제한)
+            snippet = text[:200] + "..." if len(text) > 200 else text
             
             citation = Citation(
                 source_id=source_id,
@@ -264,118 +321,148 @@ class base_handler(ABC):
             )
             citations.append(citation)
         
-        logger.info(f"📝 Citation 추출 완료: {len(citations)}건")
         return citations
-    
-    def streaming_response(self, messages: List[Dict[str, str]]) -> Iterator[str]:
-        """
-        스트리밍 응답 생성 (50토큰 단위)
-        
-        Args:
-            messages: LLM 메시지 리스트
-            
-        Yields:
-            응답 토큰들
-        """
-        try:
-            token_buffer = ""
-            token_count = 0
-            
-            for chunk in self.llm.stream(messages):
-                if hasattr(chunk, 'content') and chunk.content:
-                    token_buffer += chunk.content
-                    token_count += 1
-                    
-                    # 50토큰마다 또는 문장 끝에서 flush
-                    if token_count >= 50 or chunk.content in '.!?':
-                        if token_buffer.strip():
-                            yield token_buffer
-                            token_buffer = ""
-                            token_count = 0
-            
-            # 남은 버퍼 출력
-            if token_buffer.strip():
-                yield token_buffer
-                
-        except Exception as e:
-            logger.error(f"❌ 스트리밍 응답 생성 실패: {e}")
-            yield f"응답 생성 중 오류가 발생했습니다: {str(e)}"
-    
-    @abstractmethod
-    def get_system_prompt(self) -> str:
-        """도메인별 시스템 프롬프트 반환 (서브클래스에서 구현)"""
-        pass
-    
-    @abstractmethod
-    def format_context(self, search_results: List[Tuple[str, float, Dict[str, Any]]]) -> str:
-        """검색 결과를 컨텍스트로 포맷 (서브클래스에서 구현)"""
-        pass
     
     def handle(self, request: QueryRequest) -> HandlerResponse:
         """
-        표준 핸들러 인터페이스
+        ✅ 메인 핸들링 함수 (IndexManager 통합)
         
         Args:
-            request: QueryRequest 객체
+            request: 사용자 요청
             
         Returns:
-            HandlerResponse 객체
+            HandlerResponse: 처리 결과
         """
         start_time = time.time()
         
         try:
-            logger.info(f"🎯 {self.domain} 핸들러 처리 시작: {request.text[:50]}...")
+            # 1. 하이브리드 검색 수행
+            search_results = self.hybrid_search(request.text, k=5)
             
-            # 1. 하이브리드 검색
-            search_results = self.hybrid_search(request.text, k=10)
+            if not search_results:
+                logger.warning(f"⚠️ {self.domain} 검색 결과 없음")
+                return self._create_no_results_response(request, start_time)
             
             # 2. 컨피던스 계산
-            confidence = self.calculate_confidence(search_results)
+            confidence = self.calculate_confidence(search_results, request.text)
             
-            # 3. 컨피던스 체크
+            # 3. 임계값 확인
             if confidence < self.confidence_threshold:
-                logger.warning(f"⚠️ 낮은 컨피던스: {confidence:.3f} < {self.confidence_threshold}")
-                # TODO: k 확장 검색 또는 재질문 로직 구현
+                logger.info(f"📉 {self.domain} 컨피던스 부족: {confidence:.3f} < {self.confidence_threshold}")
+                # k 확장 재검색 시도
+                extended_results = self.hybrid_search(request.text, k=12)
+                if extended_results:
+                    extended_confidence = self.calculate_confidence(extended_results, request.text)
+                    if extended_confidence >= self.confidence_threshold:
+                        search_results = extended_results
+                        confidence = extended_confidence
+                        logger.info(f"📈 {self.domain} 확장 검색으로 컨피던스 회복: {confidence:.3f}")
             
-            # 4. Citation 추출
-            citations = self.extract_citations(search_results)
-            
-            # 5. 응답 생성
-            system_prompt = self.get_system_prompt()
+            # 4. 컨텍스트 포맷팅
             context = self.format_context(search_results)
             
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"컨텍스트:\n{context}\n\n질문: {request.text}"}
-            ]
+            # 5. LLM 응답 생성
+            system_prompt = self.get_system_prompt()
+            user_prompt = f"""컨텍스트:
+{context}
+
+질문: {request.text}
+
+위 컨텍스트를 바탕으로 정확하고 도움이 되는 답변을 제공해주세요."""
             
-            # 스트리밍이 아닌 일반 응답으로 구현 (단순화)
-            response = self.llm.invoke(messages)
+            response = self.llm.invoke([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ])
+            
             answer = response.content if hasattr(response, 'content') else str(response)
             
-            # 6. HandlerResponse 생성
+            # 6. Citation 추출
+            citations = self.extract_citations(search_results)
+            
+            # 7. 응답 생성
             elapsed_ms = int((time.time() - start_time) * 1000)
             
-            handler_response = HandlerResponse(
+            return HandlerResponse(
                 answer=answer,
                 citations=citations,
                 confidence=confidence,
                 handler_id=self.domain,
-                elapsed_ms=elapsed_ms
+                elapsed_ms=elapsed_ms,
+                diagnostics={
+                    'search_results_count': len(search_results),
+                    'threshold_met': confidence >= self.confidence_threshold,
+                    'indexmanager_integration': True  # ✅ 통합 완료 표시
+                }
             )
             
-            logger.info(f"✅ {self.domain} 핸들러 처리 완료 ({elapsed_ms}ms, confidence={confidence:.3f})")
-            return handler_response
-            
         except Exception as e:
-            logger.error(f"❌ {self.domain} 핸들러 처리 실패: {e}")
+            logger.error(f"❌ {self.domain} 핸들링 실패: {e}")
             elapsed_ms = int((time.time() - start_time) * 1000)
             
-            # 에러 응답
             return HandlerResponse(
                 answer=f"죄송합니다. {self.domain} 정보 처리 중 오류가 발생했습니다.",
                 citations=[],
                 confidence=0.0,
                 handler_id=self.domain,
-                elapsed_ms=elapsed_ms
+                elapsed_ms=elapsed_ms,
+                diagnostics={'error': str(e)}
             )
+    
+    def _create_no_results_response(self, request: QueryRequest, start_time: float) -> HandlerResponse:
+        """검색 결과 없음 응답 생성"""
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        
+        return HandlerResponse(
+            answer=f"죄송합니다. '{request.text}' 관련 {self.domain} 정보를 찾을 수 없습니다.",
+            citations=[],
+            confidence=0.0,
+            handler_id=self.domain,
+            elapsed_ms=elapsed_ms,
+            diagnostics={'no_search_results': True}
+        )
+    
+    @abstractmethod
+    def get_system_prompt(self) -> str:
+        """도메인별 시스템 프롬프트 반환 (추상 메서드)"""
+        pass
+    
+    @abstractmethod
+    def format_context(self, search_results: List[Tuple[str, float, Dict[str, Any]]]) -> str:
+        """도메인별 컨텍스트 포맷팅 (추상 메서드)"""
+        pass
+
+
+# ================================================================
+# 스트리밍 응답 지원 (미래 확장용)
+# ================================================================
+
+class StreamingHandlerMixin:
+    """스트리밍 응답을 위한 믹스인 클래스"""
+    
+    def stream_response(self, prompt: str, max_tokens: int = 1000) -> Iterator[str]:
+        """
+        스트리밍 응답 생성
+        
+        Args:
+            prompt: LLM 프롬프트
+            max_tokens: 최대 토큰 수
+            
+        Yields:
+            str: 토큰 단위 응답
+        """
+        try:
+            stream = self.llm.stream(prompt, max_tokens=max_tokens)
+            for chunk in stream:
+                if hasattr(chunk, 'content') and chunk.content:
+                    yield chunk.content
+        except Exception as e:
+            logger.error(f"❌ 스트리밍 응답 실패: {e}")
+            yield f"스트리밍 응답 중 오류가 발생했습니다: {str(e)}"
+
+
+# ================================================================
+# 모듈 로드 완료 로그
+# ================================================================
+
+logger.info("✅ base_handler.py 모듈 로드 완료 - IndexManager 통합 버전")
