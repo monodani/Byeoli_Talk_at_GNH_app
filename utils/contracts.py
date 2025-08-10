@@ -1,55 +1,65 @@
+#!/usr/bin/env python3
 """
-Data contracts and Pydantic models for BYEOLI_TALK_AT_GNH_app.
+경상남도인재개발원 RAG 챗봇 - contracts.py
 
-Defines standardized request/response interfaces between components
-to ensure type safety and API consistency across the system.
+시스템 전체의 인터페이스 계약을 정의하는 Pydantic 모델 모음
+- QueryRequest: 사용자 요청 표준화
+- HandlerResponse: 핸들러 응답 표준화  
+- ConversationContext: 대화 상태 관리
+- Citation: 소스 인용 표준화
+- 모든 데이터 교환 시 타입 안전성 보장
 """
 
-import uuid
+import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Union, Literal
 from enum import Enum
-from pydantic import BaseModel, Field, validator, root_validator
+from typing import List, Dict, Any, Optional, Union
+from uuid import uuid4
+
+from pydantic import BaseModel, Field, validator
+
+# 로깅 설정
+logger = logging.getLogger(__name__)
+
+
+# ================================================================
+# 1. 기본 열거형 타입
+# ================================================================
+
+class MessageRole(str, Enum):
+    """대화 메시지 역할"""
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
 
 
 class HandlerType(str, Enum):
-    """Available handler types."""
-    GENERAL = "general"
-    PUBLISH = "publish" 
+    """핸들러 도메인 타입"""
     SATISFACTION = "satisfaction"
-    CYBER = "cyber"
+    GENERAL = "general"
     MENU = "menu"
+    CYBER = "cyber"
+    PUBLISH = "publish"
     NOTICE = "notice"
     FALLBACK = "fallback"
 
 
-class QueryType(str, Enum):
-    """Query classification types."""
-    FACTUAL = "factual"           # 사실 정보 조회
-    ANALYTICAL = "analytical"     # 분석/비교 요청
-    PROCEDURAL = "procedural"     # 절차/방법 문의
-    TEMPORAL = "temporal"         # 일정/시간 관련
-    QUANTITATIVE = "quantitative" # 수치/통계 조회
-    CONVERSATIONAL = "conversational"  # 대화형/후속 질문
-
-
 class ConfidenceLevel(str, Enum):
-    """Response confidence levels."""
-    HIGH = "high"        # θ + 0.1 이상
-    MEDIUM = "medium"    # θ ~ θ + 0.1
-    LOW = "low"         # θ - 0.05 ~ θ
-    VERY_LOW = "very_low"  # θ 미만
+    """컨피던스 레벨 분류"""
+    HIGH = "high"      # θ + 0.1 이상
+    MEDIUM = "medium"  # θ ± 0.1
+    LOW = "low"        # θ - 0.1 이하
 
 
-# ============================================================================
-# Core Data Models
-# ============================================================================
+# ================================================================
+# 2. 대화 관련 모델
+# ================================================================
 
 class ChatTurn(BaseModel):
-    """Single conversation turn."""
-    role: Literal["user", "assistant"] = Field(..., description="Message role")
-    text: str = Field(..., min_length=1, description="Message content")
-    ts: datetime = Field(default_factory=datetime.now, description="Timestamp")
+    """개별 대화 턴"""
+    role: MessageRole = Field(..., description="메시지 역할 (user/assistant)")
+    text: str = Field(..., min_length=1, description="메시지 텍스트")
+    ts: datetime = Field(default_factory=datetime.now, description="타임스탬프")
     
     class Config:
         json_encoders = {
@@ -58,48 +68,76 @@ class ChatTurn(BaseModel):
 
 
 class ConversationContext(BaseModel):
-    """Conversation context for maintaining dialogue state."""
-    conversation_id: str = Field(default_factory=lambda: str(uuid.uuid4()), 
-                                description="Unique conversation identifier")
-    summary: str = Field(default="", description="Conversation summary")
-    recent_messages: List[ChatTurn] = Field(default_factory=list, 
-                                          description="Recent message history")
-    entities: List[str] = Field(default_factory=list,
-                               description="Extracted entities from conversation")
-    updated_at: datetime = Field(default_factory=datetime.now,
-                               description="Last update timestamp")
+    """대화 컨텍스트 (6턴 윈도우, 4턴마다 요약)"""
+    conversation_id: str = Field(default_factory=lambda: str(uuid4()), description="대화 세션 ID")
+    summary: str = Field(default="", description="대화 요약 (1,000토큰 제한)")
+    recent_messages: List[ChatTurn] = Field(default_factory=list, description="최근 6턴 메시지")
+    entities: List[str] = Field(default_factory=list, description="추출된 핵심 엔티티")
+    updated_at: datetime = Field(default_factory=datetime.now, description="최종 갱신 시간")
     
     @validator('recent_messages')
-    def validate_recent_messages_length(cls, v):
-        """Validate recent messages don't exceed window size."""
-        if len(v) > 12:  # 6 turns * 2 roles = 12 messages max
-            return v[-12:]  # Keep only last 12
+    def validate_message_limit(cls, v):
+        """최근 메시지 6턴 제한"""
+        if len(v) > 6:
+            return v[-6:]  # 최신 6개만 유지
         return v
     
-    @validator('entities')
-    def validate_entities_length(cls, v):
-        """Validate entity list doesn't exceed max size."""
-        if len(v) > 10:  # Max 10 entities
-            return v[:10]  # Keep first 10 (most important)
+    @validator('summary')
+    def validate_summary_length(cls, v):
+        """요약 길이 제한 (대략 1,000토큰)"""
+        if len(v) > 4000:  # 한글 기준 4,000자 ≈ 1,000토큰
+            logger.warning("요약이 너무 깁니다. 자동 압축이 필요합니다.")
         return v
     
-    def add_turn(self, role: str, text: str) -> None:
-        """Add a new conversation turn."""
-        self.recent_messages.append(ChatTurn(role=role, text=text))
-        if len(self.recent_messages) > 12:
-            self.recent_messages = self.recent_messages[-12:]
+    def add_message(self, role: MessageRole, text: str) -> None:
+        """새 메시지 추가 (자동으로 6턴 윈도우 유지)"""
+        new_turn = ChatTurn(role=role, text=text)
+        self.recent_messages.append(new_turn)
+        
+        # 6턴 제한 유지
+        if len(self.recent_messages) > 6:
+            self.recent_messages = self.recent_messages[-6:]
+        
         self.updated_at = datetime.now()
     
-    def get_conversation_history(self, max_turns: int = 6) -> str:
-        """Get formatted conversation history."""
-        recent = self.recent_messages[-(max_turns * 2):]  # Each turn has user+assistant
-        history_parts = []
+    def should_update_summary(self) -> bool:
+        """요약 갱신 필요 여부 (4턴마다 또는 1,000토큰 초과 시)"""
+        turn_count = len(self.recent_messages)
+        summary_tokens = len(self.summary) // 4  # 대략적 토큰 수
         
-        for msg in recent:
-            prefix = "사용자: " if msg.role == "user" else "챗봇: "
-            history_parts.append(f"{prefix}{msg.text}")
+        return (turn_count % 4 == 0 and turn_count > 0) or summary_tokens > 1000
+    
+    def get_context_hash(self) -> str:
+        """컨텍스트 해시 (캐시 키 생성용)"""
+        import hashlib
         
-        return "\n".join(history_parts)
+        # 요약 + 엔티티 기반 해시
+        content = f"{self.summary}|{','.join(sorted(self.entities))}"
+        return hashlib.md5(content.encode()).hexdigest()[:12]
+
+
+# ================================================================
+# 3. 요청/응답 모델
+# ================================================================
+
+class QueryRequest(BaseModel):
+    """표준화된 사용자 요청"""
+    text: str = Field(..., min_length=1, max_length=2000, description="사용자 질문 텍스트")
+    context: Optional[ConversationContext] = Field(default=None, description="대화 컨텍스트")
+    follow_up: bool = Field(default=False, description="후속 질문 여부 (θ-0.02 완화)")
+    trace_id: str = Field(default_factory=lambda: str(uuid4())[:8], description="요청 추적 ID")
+    routing_hints: Dict[str, Any] = Field(default_factory=dict, description="라우팅 힌트 (선택적)")
+    timestamp: datetime = Field(default_factory=datetime.now, description="요청 시간")
+    
+    @validator('text')
+    def validate_text_content(cls, v):
+        """질문 텍스트 검증"""
+        v = v.strip()
+        if not v:
+            raise ValueError("질문이 비어있습니다.")
+        if len(v) < 2:
+            raise ValueError("질문이 너무 짧습니다.")
+        return v
     
     class Config:
         json_encoders = {
@@ -108,222 +146,163 @@ class ConversationContext(BaseModel):
 
 
 class Citation(BaseModel):
-    """Source citation for response."""
-    source_id: str = Field(..., description="Source identifier (e.g., 'publish/2025plan.pdf#p12')")
-    snippet: Optional[str] = Field(None, description="Relevant text snippet")
-    page_number: Optional[int] = Field(None, description="Page number if applicable")
-    section: Optional[str] = Field(None, description="Section or subsection name")
-    confidence_score: Optional[float] = Field(None, ge=0.0, le=1.0, 
-                                            description="Relevance confidence")
+    """소스 인용 정보 (2-3건 필수)"""
+    source_id: str = Field(..., description="소스 식별자 (예: publish/2025plan.pdf#p12)")
+    snippet: Optional[str] = Field(default=None, max_length=200, description="관련 텍스트 발췌 (200자 제한)")
+    relevance_score: float = Field(default=0.0, ge=0.0, le=1.0, description="관련성 점수")
+    page_number: Optional[int] = Field(default=None, description="페이지 번호 (PDF용)")
+    section_title: Optional[str] = Field(default=None, description="섹션 제목")
     
-    @validator('source_id')
-    def validate_source_id_format(cls, v):
-        """Validate source ID follows expected format."""
-        if not v or len(v) < 3:
-            raise ValueError("source_id must be non-empty and at least 3 characters")
+    @validator('snippet')
+    def validate_snippet_length(cls, v):
+        """snippet 길이 제한"""
+        if v and len(v) > 200:
+            return v[:197] + "..."
         return v
-    
-    def get_display_name(self) -> str:
-        """Get human-readable source name."""
-        if '#' in self.source_id:
-            source_file, fragment = self.source_id.split('#', 1)
-            source_name = source_file.split('/')[-1]  # Get filename only
-            if self.page_number:
-                return f"{source_name} (p.{self.page_number})"
-            elif fragment.startswith('p'):
-                page_num = fragment[1:]
-                return f"{source_name} (p.{page_num})"
-            else:
-                return source_name
-        else:
-            return self.source_id.split('/')[-1]
-
-
-class QueryRequest(BaseModel):
-    """Standardized query request."""
-    text: str = Field(..., min_length=1, max_length=2000, 
-                     description="User query text")
-    context: ConversationContext = Field(default_factory=ConversationContext,
-                                       description="Conversation context")
-    follow_up: bool = Field(default=False, 
-                           description="Whether this is a follow-up question")
-    trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()),
-                         description="Request tracing identifier")
-    routing_hints: Dict[str, Any] = Field(default_factory=dict,
-                                        description="Optional routing hints")
-    query_type: Optional[QueryType] = Field(None, description="Classified query type")
-    priority: int = Field(default=1, ge=1, le=5, description="Query priority (1=highest)")
-    
-    @validator('text')
-    def validate_query_text(cls, v):
-        """Clean and validate query text."""
-        cleaned = v.strip()
-        if not cleaned:
-            raise ValueError("Query text cannot be empty or whitespace only")
-        return cleaned
-    
-    def normalize_query(self) -> str:
-        """Get normalized query for caching."""
-        import re
-        # Remove extra whitespace and normalize
-        normalized = re.sub(r'\s+', ' ', self.text.strip().lower())
-        # Remove common stop patterns for caching
-        normalized = re.sub(r'^(음|어|그|저|이|그런데|그리고)\s*', '', normalized)
-        return normalized
-
-
-class HandlerCandidate(BaseModel):
-    """Handler selection candidate."""
-    handler_id: HandlerType = Field(..., description="Handler identifier")
-    confidence: float = Field(..., ge=0.0, le=1.0, description="Selection confidence")
-    reasoning: str = Field(..., description="Selection reasoning")
-    estimated_response_time: Optional[float] = Field(None, ge=0.0, 
-                                                   description="Estimated response time in seconds")
-
-
-class UsedContext(BaseModel):
-    """Information about context usage in response generation."""
-    turns: int = Field(default=0, description="Number of conversation turns used")
-    summary_hash: Optional[str] = Field(None, description="Hash of summary used")
-    entities_used: List[str] = Field(default_factory=list, 
-                                   description="Entities referenced in response")
-    context_relevance: Optional[float] = Field(None, ge=0.0, le=1.0,
-                                             description="How relevant context was")
-
-
-class Diagnostics(BaseModel):
-    """Detailed diagnostic information."""
-    retrieval_time_ms: Optional[float] = Field(None, description="Retrieval time")
-    generation_time_ms: Optional[float] = Field(None, description="Generation time")
-    total_documents_searched: Optional[int] = Field(None, description="Documents searched")
-    cache_hit: Optional[bool] = Field(None, description="Whether cache was hit")
-    confidence_components: Optional[Dict[str, float]] = Field(None, 
-                                                            description="Confidence breakdown")
-    error_details: Optional[str] = Field(None, description="Error information if any")
 
 
 class HandlerResponse(BaseModel):
-    """Standardized handler response."""
-    answer: str = Field(..., min_length=1, description="Generated answer")
-    citations: List[Citation] = Field(..., min_items=0, max_items=5,
-                                    description="Source citations")
-    confidence: float = Field(..., ge=0.0, le=1.0, 
-                             description="Response confidence score")
-    handler_id: HandlerType = Field(..., description="Handler that generated response")
-    elapsed_ms: float = Field(..., ge=0.0, description="Processing time in milliseconds")
-    confidence_level: ConfidenceLevel = Field(..., description="Confidence categorization")
-    used_context: Optional[UsedContext] = Field(None, 
-                                              description="Context usage information")
-    reask: Optional[str] = Field(None, description="Suggested re-ask if confidence low")
-    diagnostics: Optional[Diagnostics] = Field(None, 
-                                             description="Detailed diagnostic info")
+    """표준화된 핸들러 응답"""
+    answer: str = Field(..., min_length=1, description="생성된 답변")
+    citations: List[Citation] = Field(default_factory=list, description="소스 인용 목록 (2-3건 권장)")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="컨피던스 점수")
+    handler_id: HandlerType = Field(..., description="처리한 핸들러 ID")
+    elapsed_ms: int = Field(..., ge=0, description="처리 시간 (밀리초)")
+    used_context: Optional[Dict[str, Any]] = Field(default=None, description="사용된 컨텍스트 정보")
+    reask: Optional[str] = Field(default=None, description="재질문 제안 (컨피던스 부족 시)")
+    diagnostics: Dict[str, Any] = Field(default_factory=dict, description="디버깅/분석 정보")
+    timestamp: datetime = Field(default_factory=datetime.now, description="응답 시간")
     
     @validator('citations')
-    def validate_citations_count(cls, v):
-        """Validate citation requirements."""
-        if len(v) > 5:
-            # Keep top 5 by confidence if available, otherwise first 5
-            if all(c.confidence_score is not None for c in v):
-                v.sort(key=lambda x: x.confidence_score, reverse=True)
-            return v[:5]
+    def validate_citation_count(cls, v):
+        """Citation 개수 검증 (2-3건 권장)"""
+        if len(v) == 0:
+            logger.warning("Citation이 없습니다. 소스 인용이 필요합니다.")
+        elif len(v) > 5:
+            logger.warning(f"Citation이 너무 많습니다 ({len(v)}개). 핵심만 선별 권장.")
         return v
     
-    @root_validator
-    def validate_confidence_level_consistency(cls, values):
-        """Ensure confidence level matches confidence score."""
-        confidence = values.get('confidence', 0.0)
-        confidence_level = values.get('confidence_level')
-        
-        if confidence >= 0.8:
-            expected_level = ConfidenceLevel.HIGH
-        elif confidence >= 0.6:
-            expected_level = ConfidenceLevel.MEDIUM
-        elif confidence >= 0.4:
-            expected_level = ConfidenceLevel.LOW
+    @property
+    def confidence_level(self) -> ConfidenceLevel:
+        """컨피던스 레벨 자동 분류"""
+        # 핸들러별 θ 값은 외부에서 주입받아야 하므로, 일반적 기준 사용
+        if self.confidence >= 0.75:
+            return ConfidenceLevel.HIGH
+        elif self.confidence >= 0.60:
+            return ConfidenceLevel.MEDIUM
         else:
-            expected_level = ConfidenceLevel.VERY_LOW
-            
-        if confidence_level != expected_level:
-            values['confidence_level'] = expected_level
-            
-        return values
+            return ConfidenceLevel.LOW
     
-    def requires_citation_improvement(self) -> bool:
-        """Check if response needs more citations."""
-        if self.confidence_level in [ConfidenceLevel.HIGH, ConfidenceLevel.MEDIUM]:
-            return len(self.citations) < 2
-        return len(self.citations) < 1
+    @property
+    def is_reliable(self) -> bool:
+        """신뢰할만한 응답인지 여부"""
+        return self.confidence >= 0.65 and len(self.citations) >= 1
     
-    def get_citation_summary(self) -> str:
-        """Get formatted citation summary."""
-        if not self.citations:
-            return "출처 없음"
-        
-        sources = [cite.get_display_name() for cite in self.citations]
-        if len(sources) == 1:
-            return f"출처: {sources[0]}"
-        elif len(sources) == 2:
-            return f"출처: {sources[0]}, {sources[1]}"
-        else:
-            return f"출처: {sources[0]} 외 {len(sources)-1}건"
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
 
 
-# ============================================================================
-# Routing and Selection Models  
-# ============================================================================
+# ================================================================
+# 4. 라우팅 관련 모델
+# ================================================================
 
-class RoutingResult(BaseModel):
-    """Result of query routing process."""
-    selected_handlers: List[HandlerCandidate] = Field(..., min_items=1, max_items=2,
-                                                     description="Selected handler candidates")
-    routing_confidence: float = Field(..., ge=0.0, le=1.0,
-                                     description="Routing decision confidence")
-    routing_time_ms: float = Field(..., ge=0.0, description="Routing time in milliseconds")
-    routing_method: str = Field(..., description="Method used for routing")
-    fallback_reason: Optional[str] = Field(None, description="Reason for fallback if any")
-
-
-class ParallelExecutionResult(BaseModel):
-    """Result of parallel handler execution."""
-    responses: List[HandlerResponse] = Field(..., description="Handler responses")
-    execution_time_ms: float = Field(..., ge=0.0, description="Total execution time")
-    timed_out: bool = Field(default=False, description="Whether execution timed out")
-    selected_response: Optional[HandlerResponse] = Field(None, 
-                                                       description="Finally selected response")
-
-
-# ============================================================================
-# Cache Models
-# ============================================================================
-
-class CacheKey(BaseModel):
-    """Cache key structure."""
-    query_hash: str = Field(..., description="Normalized query hash")
-    context_hash: Optional[str] = Field(None, description="Context hash")
-    handler_id: Optional[str] = Field(None, description="Handler identifier")
+class HandlerCandidate(BaseModel):
+    """핸들러 후보 (라우팅 단계)"""
+    handler_id: HandlerType = Field(..., description="핸들러 ID")
+    rule_score: float = Field(default=0.0, ge=0.0, le=1.0, description="규칙 기반 점수")
+    llm_score: float = Field(default=0.0, ge=0.0, le=1.0, description="LLM 기반 점수")
+    combined_score: float = Field(default=0.0, ge=0.0, le=1.0, description="종합 점수")
+    reasoning: str = Field(default="", description="선정 근거")
     
-    def to_string(self) -> str:
-        """Convert to cache key string."""
-        parts = [self.query_hash]
-        if self.context_hash:
-            parts.append(self.context_hash)
-        if self.handler_id:
-            parts.append(self.handler_id)
-        return ":".join(parts)
+    @validator('combined_score', always=True)
+    def calculate_combined_score(cls, v, values):
+        """종합 점수 자동 계산 (rule:llm = 0.3:0.7)"""
+        rule_score = values.get('rule_score', 0.0)
+        llm_score = values.get('llm_score', 0.0)
+        return round(rule_score * 0.3 + llm_score * 0.7, 3)
 
+
+class RouterResponse(BaseModel):
+    """라우터 응답 (Top-2 핸들러 선정 결과)"""
+    selected_handlers: List[HandlerCandidate] = Field(..., max_items=2, description="선정된 핸들러 (최대 2개)")
+    selection_time_ms: int = Field(..., ge=0, description="선정 소요 시간")
+    routing_strategy: str = Field(default="hybrid", description="사용된 라우팅 전략")
+    trace_id: str = Field(..., description="요청 추적 ID")
+    
+    @validator('selected_handlers')
+    def validate_handler_count(cls, v):
+        """핸들러 개수 검증"""
+        if len(v) == 0:
+            raise ValueError("최소 1개의 핸들러가 선정되어야 합니다.")
+        if len(v) > 2:
+            return v[:2]  # 상위 2개만 유지
+        return v
+
+
+# ================================================================
+# 5. 캐시 관련 모델
+# ================================================================
 
 class CacheEntry(BaseModel):
-    """Cache entry structure."""
-    key: CacheKey = Field(..., description="Cache key")
-    value: Union[HandlerResponse, List[Citation], Dict[str, Any]] = Field(..., 
-                                                                         description="Cached value")
-    created_at: datetime = Field(default_factory=datetime.now, description="Creation time")
-    expires_at: datetime = Field(..., description="Expiration time")
-    hit_count: int = Field(default=0, description="Cache hit count")
+    """캐시 항목"""
+    key: str = Field(..., description="캐시 키")
+    value: Any = Field(..., description="캐시 값")
+    ttl_seconds: int = Field(..., gt=0, description="TTL (초)")
+    created_at: datetime = Field(default_factory=datetime.now, description="생성 시간")
+    access_count: int = Field(default=0, description="접근 횟수")
     
+    @property
     def is_expired(self) -> bool:
-        """Check if cache entry is expired."""
-        return datetime.now() > self.expires_at
+        """만료 여부 확인"""
+        from datetime import timedelta
+        expiry_time = self.created_at + timedelta(seconds=self.ttl_seconds)
+        return datetime.now() > expiry_time
+    
+    def access(self) -> None:
+        """접근 시 카운터 증가"""
+        self.access_count += 1
+
+
+# ================================================================
+# 6. 성능/진단 관련 모델
+# ================================================================
+
+class PerformanceMetrics(BaseModel):
+    """성능 메트릭"""
+    total_time_ms: int = Field(..., ge=0, description="총 처리 시간")
+    router_time_ms: int = Field(default=0, ge=0, description="라우터 시간")
+    handler_time_ms: int = Field(default=0, ge=0, description="핸들러 시간")
+    retrieval_time_ms: int = Field(default=0, ge=0, description="검색 시간")
+    generation_time_ms: int = Field(default=0, ge=0, description="생성 시간")
+    cache_hits: int = Field(default=0, ge=0, description="캐시 히트 수")
+    cache_misses: int = Field(default=0, ge=0, description="캐시 미스 수")
+    
+    @property
+    def cache_hit_rate(self) -> float:
+        """캐시 히트율"""
+        total = self.cache_hits + self.cache_misses
+        return self.cache_hits / total if total > 0 else 0.0
+    
+    @property
+    def within_timebox(self) -> bool:
+        """1.5초 타임박스 준수 여부"""
+        return self.total_time_ms <= 1500
+
+
+# ================================================================
+# 7. 에러 처리 모델
+# ================================================================
+
+class ErrorResponse(BaseModel):
+    """에러 응답"""
+    error_code: str = Field(..., description="에러 코드")
+    error_message: str = Field(..., description="에러 메시지")
+    handler_id: Optional[HandlerType] = Field(default=None, description="에러 발생 핸들러")
+    trace_id: str = Field(..., description="추적 ID")
+    timestamp: datetime = Field(default_factory=datetime.now, description="에러 시간")
+    recovery_suggestion: Optional[str] = Field(default=None, description="복구 제안")
     
     class Config:
         json_encoders = {
@@ -331,128 +310,74 @@ class CacheEntry(BaseModel):
         }
 
 
-# ============================================================================
-# Error Models
-# ============================================================================
+# ================================================================
+# 8. 유틸리티 함수들
+# ================================================================
 
-class ErrorType(str, Enum):
-    """Error type classification."""
-    TIMEOUT = "timeout"
-    VALIDATION = "validation"
-    RETRIEVAL = "retrieval"
-    GENERATION = "generation"
-    API_ERROR = "api_error"
-    CONFIGURATION = "configuration"
-    RESOURCE = "resource"
+def create_query_request(
+    text: str,
+    context: Optional[ConversationContext] = None,
+    follow_up: bool = False,
+    **kwargs
+) -> QueryRequest:
+    """QueryRequest 생성 헬퍼"""
+    return QueryRequest(
+        text=text,
+        context=context,
+        follow_up=follow_up,
+        **kwargs
+    )
 
-
-class ErrorDetails(BaseModel):
-    """Detailed error information."""
-    error_type: ErrorType = Field(..., description="Error classification")
-    message: str = Field(..., description="Error message")
-    handler_id: Optional[str] = Field(None, description="Handler where error occurred")
-    trace_id: Optional[str] = Field(None, description="Request trace ID")
-    timestamp: datetime = Field(default_factory=datetime.now, description="Error timestamp")
-    context: Optional[Dict[str, Any]] = Field(None, description="Additional error context")
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
-
-# ============================================================================
-# Health Check and Status Models
-# ============================================================================
-
-class ComponentStatus(str, Enum):
-    """Component status options."""
-    HEALTHY = "healthy"
-    DEGRADED = "degraded"
-    UNHEALTHY = "unhealthy"
-    UNKNOWN = "unknown"
-
-
-class HealthCheck(BaseModel):
-    """System health check result."""
-    overall_status: ComponentStatus = Field(..., description="Overall system status")
-    components: Dict[str, ComponentStatus] = Field(..., description="Individual component status")
-    timestamp: datetime = Field(default_factory=datetime.now, description="Check timestamp")
-    details: Optional[Dict[str, Any]] = Field(None, description="Additional health details")
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
-
-# ============================================================================
-# Utility Functions
-# ============================================================================
 
 def create_error_response(
-    error_type: ErrorType,
-    message: str,
-    handler_id: str = "fallback",
-    trace_id: Optional[str] = None
-) -> HandlerResponse:
-    """Create standardized error response."""
-    return HandlerResponse(
-        answer=f"죄송합니다. 처리 중 오류가 발생했습니다: {message}",
-        citations=[],
-        confidence=0.0,
-        confidence_level=ConfidenceLevel.VERY_LOW,
-        handler_id=HandlerType.FALLBACK,
-        elapsed_ms=0.0,
-        diagnostics=Diagnostics(
-            error_details=f"{error_type}: {message}"
-        )
+    error_code: str,
+    error_message: str,
+    trace_id: str,
+    handler_id: Optional[HandlerType] = None,
+    recovery_suggestion: Optional[str] = None
+) -> ErrorResponse:
+    """ErrorResponse 생성 헬퍼"""
+    return ErrorResponse(
+        error_code=error_code,
+        error_message=error_message,
+        trace_id=trace_id,
+        handler_id=handler_id,
+        recovery_suggestion=recovery_suggestion
     )
 
 
-def create_timeout_response(
-    handler_id: str,
-    elapsed_ms: float,
-    partial_answer: Optional[str] = None
-) -> HandlerResponse:
-    """Create timeout response with partial results."""
-    answer = partial_answer or "처리 시간이 초과되어 완전한 응답을 제공할 수 없습니다."
-    
-    return HandlerResponse(
-        answer=answer,
-        citations=[],
-        confidence=0.3,  # Low confidence for timeout
-        confidence_level=ConfidenceLevel.LOW,
-        handler_id=HandlerType(handler_id),
-        elapsed_ms=elapsed_ms,
-        diagnostics=Diagnostics(
-            error_details="Request timed out"
-        )
-    )
-
-
-def normalize_query_for_cache(query: str) -> str:
-    """Normalize query text for consistent caching."""
+def normalize_query(text: str) -> str:
+    """쿼리 정규화 (캐시 키 생성용)"""
     import re
-    import unicodedata
     
-    # Unicode normalization
-    normalized = unicodedata.normalize('NFKC', query)
+    # 공백 정리 및 소문자 변환
+    normalized = re.sub(r'\s+', ' ', text.lower().strip())
     
-    # Convert to lowercase
-    normalized = normalized.lower().strip()
+    # 특수문자 제거 (한글, 영문, 숫자, 기본 문장부호만 유지)
+    normalized = re.sub(r'[^\w\s가-힣.,?!]', '', normalized)
     
-    # Remove extra whitespace
-    normalized = re.sub(r'\s+', ' ', normalized)
-    
-    # Remove common conversation starters
-    patterns = [
-        r'^(음|어|그|저|이|그런데|그리고|그러면|그럼|자|잠깐|잠시)\s*',
-        r'\s*(좀|좀더|조금|약간)\s*',
-        r'[?!。．]+$'  # Remove trailing punctuation
-    ]
-    
-    for pattern in patterns:
-        normalized = re.sub(pattern, '', normalized)
-    
-    return normalized.strip()
+    return normalized
+
+
+# ================================================================
+# 9. 타입 힌트 별칭
+# ================================================================
+
+# 자주 사용되는 타입 조합들
+QueryDict = Dict[str, Any]
+ResponseDict = Dict[str, Any]
+MetadataDict = Dict[str, Any]
+ConfigDict = Dict[str, Any]
+
+# Streamlit 상태 타입
+StreamlitState = Dict[str, Any]
+
+# 벡터스토어 관련 타입
+DocumentScore = tuple[str, float, MetadataDict]  # (text, score, metadata)
+SearchResults = List[DocumentScore]
+
+# ================================================================
+# 모듈 로드 완료 로그
+# ================================================================
+
+logger.info("✅ contracts.py 모듈 로드 완료 - 시스템 인터페이스 계약 정의됨")
