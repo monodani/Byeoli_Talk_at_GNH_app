@@ -1,23 +1,12 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - 벡터스토어 구축 메인 스크립트
+경상남도인재개발원 RAG 챗봇 - 벡터스토어 구축 메인 스크립트 (수정됨)
 
-모든 원본 데이터를 처리하여 7개 도메인별 FAISS 벡터스토어를 구축합니다.
-
-주요 기능:
-✅ BaseLoader 패턴 활용으로 기존 코드 완벽 호환
-✅ 7개 도메인 순차 처리 (satisfaction, general, publish, cyber, menu, notice)
-✅ FAISS 벡터스토어 생성 및 IndexManager 호환성 보장
-✅ 선택적 의존성 처리로 라이브러리 누락 시에도 작동
-✅ 에러 복구 및 부분 실패 허용
-✅ 메모리 효율적 처리 (4GB 이하)
-✅ 실시간 진행상황 표시
-
-성공 기준:
-- 전체 구축 시간: 5분 이내
-- 메모리 사용량: 4GB 이하  
-- IndexManager 로드 시간: 10초 이내
-- 처리 성공률: 80% 이상
+🔧 주요 수정사항:
+✅ IndexManager와 완전 동일한 파일명 매핑 적용
+✅ 벡터스토어 저장 로직 개선
+✅ 파일 존재 확인 및 검증 강화
+✅ BM25 인덱스 생성 및 저장 로직 추가
 """
 
 import os
@@ -30,6 +19,10 @@ from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 import gc
 
+# ✅ BM25 인덱스 생성을 위해 필요한 라이브러리 추가
+import pickle
+from rank_bm25 import BM25Okapi
+
 # 프로젝트 루트 경로 설정
 ROOT_DIR = Path(__file__).parent.absolute()
 sys.path.insert(0, str(ROOT_DIR))
@@ -37,7 +30,7 @@ sys.path.insert(0, str(ROOT_DIR))
 # 프로젝트 모듈 임포트
 try:
     from utils.config import config
-    from utils.textifier import TextChunk  # ✅ 올바른 import
+    from utils.textifier import TextChunk
     from utils.index_manager import get_index_manager, IndexManager
     from modules.base_loader import BaseLoader
     
@@ -57,7 +50,7 @@ except ImportError as e:
 # 외부 라이브러리 (선택적 의존성)
 try:
     from langchain_community.vectorstores import FAISS
-    from langchain_community.embeddings import OpenAIEmbeddings
+    from langchain_openai import OpenAIEmbeddings
     FAISS_AVAILABLE = True
 except ImportError:
     print("⚠️ FAISS 라이브러리를 찾을 수 없습니다. 일부 기능이 제한됩니다.")
@@ -77,15 +70,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ================================================================
-# 1. 벡터스토어 구축 메인 클래스
+# 1. 수정된 벡터스토어 구축 클래스
 # ================================================================
 
 class VectorStoreBuilder:
     """
-    벡터스토어 구축 메인 클래스
-    
-    모든 도메인의 데이터를 처리하여 FAISS 벡터스토어를 생성하고
-    IndexManager와의 호환성을 보장합니다.
+    벡터스토어 구축 메인 클래스 (IndexManager 호환성 수정)
     """
     
     def __init__(self):
@@ -106,7 +96,7 @@ class VectorStoreBuilder:
             "notice": NoticeLoader
         }
         
-        logger.info("🚀 VectorStoreBuilder 초기화 완료")
+        logger.info("🚀 VectorStoreBuilder 초기화 완료 (IndexManager 호환성 강화)")
         logger.info(f"📁 프로젝트 루트: {ROOT_DIR}")
         logger.info(f"📊 처리 대상 도메인: {list(self.loaders.keys())}")
     
@@ -218,9 +208,10 @@ class VectorStoreBuilder:
             logger.info(f"📄 {domain}: {len(chunks)}개 청크 생성됨")
             self.total_chunks += len(chunks)
             
-            # 3. FAISS 벡터스토어 생성
+            # 3. ✅ IndexManager와 동일한 경로 및 파일명 사용
             vectorstore_path = self._get_vectorstore_path(domain)
-            success = self._create_faiss_vectorstore(chunks, vectorstore_path)
+            # domain 인자를 _create_vectorstores 메서드에 전달
+            success = self._create_vectorstores(chunks, vectorstore_path, domain)
             
             if success:
                 domain_time = time.time() - domain_start
@@ -236,24 +227,25 @@ class VectorStoreBuilder:
             return False
     
     def _get_vectorstore_path(self, domain: str) -> Path:
-        """도메인별 벡터스토어 경로 반환 (IndexManager 호환)"""
-        # IndexManager의 _get_domain_configs()와 동일한 경로 사용
+        """✅ IndexManager와 완전히 동일한 경로 반환"""
+        # IndexManager._get_domain_configs()와 완전 동일
+        vectorstore_base = config.ROOT_DIR / "vectorstores"
+        
         path_mapping = {
-            "satisfaction": "vectorstore_unified_satisfaction",
-            "general": "vectorstore_general", 
-            "menu": "vectorstore_menu",
-            "cyber": "vectorstore_cyber",
-            "publish": "vectorstore_unified_publish",
-            "notice": "vectorstore_notice"
+            "satisfaction": vectorstore_base / "vectorstore_unified_satisfaction",
+            "general": vectorstore_base / "vectorstore_general",
+            "menu": vectorstore_base / "vectorstore_menu", 
+            "cyber": vectorstore_base / "vectorstore_cyber",
+            "publish": vectorstore_base / "vectorstore_unified_publish",
+            "notice": vectorstore_base / "vectorstore_notice"
         }
         
-        vectorstore_name = path_mapping.get(domain, f"vectorstore_{domain}")
-        return config.VECTORSTORE_DIR / vectorstore_name
+        return path_mapping.get(domain, vectorstore_base / f"vectorstore_{domain}")
     
-    def _create_faiss_vectorstore(self, chunks: List[TextChunk], output_path: Path) -> bool:
-        """FAISS 벡터스토어 생성"""
+    def _create_vectorstores(self, chunks: List[TextChunk], output_path: Path, domain: str) -> bool:
+        """✅ BM25 인덱스와 FAISS 벡터스토어 모두 생성"""
         try:
-            logger.info(f"🔧 FAISS 벡터스토어 생성 중: {output_path}")
+            logger.info(f"🔧 FAISS 및 BM25 인덱스 생성 중: {output_path}")
             
             # 1. 텍스트 추출
             texts = [chunk.text for chunk in chunks]
@@ -261,8 +253,18 @@ class VectorStoreBuilder:
             
             logger.info(f"📝 텍스트 데이터: {len(texts)}개")
             
-            # 2. 배치 처리로 메모리 효율성 확보
-            batch_size = 100  # 메모리 사용량 제한
+            # ✅ 2. BM25 인덱스 생성 및 저장 (추가된 부분)
+            logger.info(f"🔧 BM25 인덱스 생성 중...")
+            tokenized_texts = [text.split(" ") for text in texts]
+            bm25_index = BM25Okapi(tokenized_texts)
+            
+            bm25_path = output_path / f"{domain}_index.bm25"
+            with open(bm25_path, "wb") as f:
+                pickle.dump((bm25_index, metadatas), f) # 메타데이터도 함께 저장
+            logger.info(f"✅ BM25 인덱스 저장 완료: {bm25_path}")
+
+            # 3. FAISS 벡터스토어 생성 및 저장 (기존 로직)
+            batch_size = 100
             vectorstore = None
             
             for i in range(0, len(texts), batch_size):
@@ -272,14 +274,12 @@ class VectorStoreBuilder:
                 logger.info(f"⚡ 배치 처리: {i+1}-{min(i+batch_size, len(texts))}/{len(texts)}")
                 
                 if vectorstore is None:
-                    # 첫 번째 배치로 벡터스토어 생성
                     vectorstore = FAISS.from_texts(
                         texts=batch_texts,
                         embedding=self.embeddings,
                         metadatas=batch_metadatas
                     )
                 else:
-                    # 기존 벡터스토어에 추가
                     batch_vectorstore = FAISS.from_texts(
                         texts=batch_texts,
                         embedding=self.embeddings,
@@ -287,41 +287,47 @@ class VectorStoreBuilder:
                     )
                     vectorstore.merge_from(batch_vectorstore)
                     
-                # 메모리 정리
                 gc.collect()
             
-            # 3. 벡터스토어 저장 (IndexManager 호환 형식)
             output_path.mkdir(parents=True, exist_ok=True)
-            
-            # 인덱스 파일명은 도메인별로 설정
-            domain = output_path.name.replace("vectorstore_", "").replace("unified_", "")
             index_name = f"{domain}_index"
+            logger.info(f"💾 FAISS 벡터스토어 저장: {output_path}/{index_name}")
             
             vectorstore.save_local(
                 folder_path=str(output_path),
                 index_name=index_name
             )
             
-            # 4. 생성 확인
+            # 4. 파일 생성 확인
             faiss_file = output_path / f"{index_name}.faiss"
             pkl_file = output_path / f"{index_name}.pkl"
             
-            if faiss_file.exists() and pkl_file.exists():
+            logger.info(f"🔍 파일 생성 확인:")
+            logger.info(f"  - FAISS: {faiss_file} ({'✅ 존재' if faiss_file.exists() else '❌ 없음'})")
+            logger.info(f"  - PKL: {pkl_file} ({'✅ 존재' if pkl_file.exists() else '❌ 없음'})")
+            
+            # ✅ BM25 파일도 함께 확인
+            bm25_file = output_path / f"{domain}_index.bm25"
+            logger.info(f"  - BM25: {bm25_file} ({'✅ 존재' if bm25_file.exists() else '❌ 없음'})")
+            
+            if faiss_file.exists() and pkl_file.exists() and bm25_file.exists():
                 faiss_size = faiss_file.stat().st_size / (1024*1024)  # MB
-                logger.info(f"✅ 벡터스토어 저장 완료: {faiss_size:.1f}MB")
+                pkl_size = pkl_file.stat().st_size / (1024*1024)     # MB
+                bm25_size = bm25_file.stat().st_size / (1024*1024)   # MB
+                logger.info(f"✅ 벡터스토어 저장 완료: FAISS {faiss_size:.1f}MB, PKL {pkl_size:.1f}MB, BM25 {bm25_size:.1f}MB")
                 self.total_documents += len(texts)
                 return True
             else:
-                logger.error(f"❌ 벡터스토어 파일 생성 실패: {faiss_file}, {pkl_file}")
+                logger.error(f"❌ 벡터스토어 파일 생성 실패")
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ FAISS 벡터스토어 생성 실패: {e}")
+            logger.error(f"❌ 벡터스토어 생성 실패: {e}")
             logger.debug(traceback.format_exc())
             return False
     
     def verify_vectorstores(self) -> Dict[str, Any]:
-        """생성된 벡터스토어 IndexManager 호환성 검증"""
+        """✅ 생성된 벡터스토어 IndexManager 호환성 검증 (개선)"""
         logger.info("🔍 벡터스토어 검증 시작...")
         
         verification_results = {}
@@ -335,31 +341,55 @@ class VectorStoreBuilder:
                 try:
                     logger.info(f"🔍 {domain} 벡터스토어 검증 중...")
                     
-                    # IndexManager를 통한 로드 테스트
+                    # 1. 파일 존재 확인
+                    vectorstore_path = self._get_vectorstore_path(domain)
+                    faiss_file = vectorstore_path / f"{domain}_index.faiss"
+                    pkl_file = vectorstore_path / f"{domain}_index.pkl"
+                    # ✅ BM25 파일 경로 추가
+                    bm25_file = vectorstore_path / f"{domain}_index.bm25"
+
+                    files_exist = faiss_file.exists() and pkl_file.exists() and bm25_file.exists()
+                    
+                    logger.info(f"   파일 존재: FAISS {'✅' if faiss_file.exists() else '❌'}, PKL {'✅' if pkl_file.exists() else '❌'}, BM25 {'✅' if bm25_file.exists() else '❌'}")
+                    
+                    if not files_exist:
+                        verification_results[domain] = {
+                            "loaded": False,
+                            "search_test": False,
+                            "status": f"❌ 파일 없음: {vectorstore_path}",
+                            "files_exist": False
+                        }
+                        continue
+                    
+                    # 2. IndexManager를 통한 로드 테스트
                     vectorstore = index_manager.get_vectorstore(domain)
                     
                     if vectorstore is not None:
-                        # 간단한 검색 테스트
+                        # 3. 간단한 검색 테스트
                         test_results = vectorstore.similarity_search("테스트", k=1)
                         verification_results[domain] = {
                             "loaded": True,
                             "search_test": len(test_results) > 0,
-                            "status": "✅ 성공"
+                            "status": "✅ 성공",
+                            "files_exist": True,
+                            "documents_count": len(test_results)
                         }
                         logger.info(f"✅ {domain} 검증 성공")
                     else:
                         verification_results[domain] = {
                             "loaded": False,
                             "search_test": False,
-                            "status": "❌ 로드 실패"
+                            "status": "❌ IndexManager 로드 실패",
+                            "files_exist": True
                         }
-                        logger.warning(f"⚠️ {domain} 검증 실패")
+                        logger.warning(f"⚠️ {domain} 검증 실패: IndexManager 로드 불가")
                         
                 except Exception as e:
                     verification_results[domain] = {
                         "loaded": False,
                         "search_test": False,
-                        "status": f"❌ 오류: {str(e)[:50]}"
+                        "status": f"❌ 오류: {str(e)[:50]}",
+                        "files_exist": False
                     }
                     logger.error(f"❌ {domain} 검증 중 오류: {e}")
             
@@ -386,7 +416,7 @@ class VectorStoreBuilder:
         
         report = f"""
 {'='*80}
-🌟 BYEOLI_TALK_AT_GNH_app 벡터스토어 구축 완료 리포트
+🌟 BYEOLI_TALK_AT_GNH_app 벡터스토어 구축 완료 리포트 (수정됨)
 {'='*80}
 
 📊 구축 결과:
@@ -445,19 +475,19 @@ class VectorStoreBuilder:
   - 로그는 {ROOT_DIR}/logs/data_ingestion.log 에서 확인 가능
 
 {'='*80}
-🌟 BYEOLI 챗봇 벡터스토어 구축 완료! 
+🌟 BYEOLI 챗봇 벡터스토어 구축 완료! (IndexManager 호환성 확인됨)
 {'='*80}
 """
         
         return report
 
 # ================================================================
-# 2. 메인 실행 함수
+# 2. 메인 실행 함수 (변경 없음)
 # ================================================================
 
 def main():
     """메인 실행 함수"""
-    print("🌟 BYEOLI_TALK_AT_GNH_app 벡터스토어 구축 시작!")
+    print("🌟 BYEOLI_TALK_AT_GNH_app 벡터스토어 구축 시작! (IndexManager 호환성 수정됨)")
     print(f"📍 프로젝트 위치: {ROOT_DIR}")
     print(f"⏰ 시작 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*60)
@@ -494,7 +524,7 @@ def main():
     return success_rate >= 0.8
 
 # ================================================================
-# 3. 개발/테스트 함수들
+# 3. 개발/테스트 함수들 (변경 없음)
 # ================================================================
 
 def test_single_domain(domain: str):
@@ -542,7 +572,7 @@ def quick_health_check():
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="BYEOLI 챗봇 벡터스토어 구축")
+    parser = argparse.ArgumentParser(description="BYEOLI 챗봇 벡터스토어 구축 (수정됨)")
     parser.add_argument("--domain", type=str, help="특정 도메인만 처리")
     parser.add_argument("--health-check", action="store_true", help="헬스체크만 실행")
     parser.add_argument("--verbose", action="store_true", help="상세 로그 출력")
