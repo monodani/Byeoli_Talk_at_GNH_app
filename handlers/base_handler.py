@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - baseHandler 기반 클래스
+경상남도인재개발원 RAG 챗봇 - base_handler 기반 클래스
 
 모든 핸들러의 공통 기능을 제공하는 추상 베이스 클래스:
 - 하이브리드 검색 (FAISS + BM25 + RRF)
@@ -34,7 +34,7 @@ from rank_bm25 import BM25Okapi
 logger = logging.getLogger(__name__)
 
 
-class baseHandler(ABC):
+class base_handler(ABC):
     """
     모든 핸들러의 기반 클래스
     
@@ -47,7 +47,7 @@ class baseHandler(ABC):
     
     def __init__(self, domain: str, index_name: str, confidence_threshold: float):
         """
-        baseHandler 초기화
+        base_Handler 초기화
         
         Args:
             domain: 도메인 이름 (예: "satisfaction")
