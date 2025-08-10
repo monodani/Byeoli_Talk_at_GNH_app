@@ -1,226 +1,254 @@
+#!/usr/bin/env python3
 """
-General domain data loader for Byeoli_Talk_at_GNH_app.
-Processes operation_test.pdf, hakchik.pdf, and task_telephone.csv files.
-Preserves existing Colab templates while implementing BaseLoader pattern.
+경상남도인재개발원 RAG 챗봇 - 일반 도메인 로더 (BaseLoader 패턴 준수)
+
+notice 로더 패턴을 따라 완전히 수정됨:
+- process_domain_data(self) 시그니처로 변경
+- 원본 파일 직접 읽기 로직 추가
+- BaseLoader 표준 패턴 완전 준수
+- 기존 템플릿 시스템 유지
 """
 
-import os
-from typing import List, Dict, Any
+import logging
 import pandas as pd
 from pathlib import Path
+from typing import List, Dict, Any, Optional
+from datetime import datetime
 
-from modules.base_loader import BaseLoader, TextChunk
+# 프로젝트 모듈 임포트
+from modules.base_loader import BaseLoader
+from utils.textifier import TextChunk, PDFProcessor
 from utils.config import config
+
+# 로깅 설정
+logger = logging.getLogger(__name__)
 
 
 class GeneralLoader(BaseLoader):
     """
-    General domain loader inheriting from BaseLoader.
-    Handles PDF documents and contact CSV with domain-specific templates.
+    일반 도메인 로더 - BaseLoader 표준 패턴 준수
+    
+    처리 대상:
+    - data/general/hakchik.pdf (학칙+감점기준+전결규정 통합문서)
+    - data/general/operation_test.pdf (운영/평가 계획)
+    - data/general/task_telephone.csv (업무담당자 연락처)
+    
+    특징:
+    - notice 로더와 동일한 process_domain_data(self) 시그니처
+    - 원본 파일 직접 읽기
+    - 기존 코랩 템플릿 완벽 보존
+    - 해시 기반 증분 빌드 지원
     """
     
     def __init__(self):
         super().__init__(
-            loader_id="general",
-            source_dir="data/general", 
-            target_dir="vectorstores/vectorstore_general",
-            schema_dir="schemas"
+            domain="general",
+            source_dir=config.ROOT_DIR / "data" / "general",
+            vectorstore_dir=config.ROOT_DIR / "vectorstores" / "vectorstore_general",
+            index_name="general_index"
         )
         
-    def get_file_patterns(self) -> List[str]:
-        """Return file patterns to process in general domain."""
-        return ["*.pdf", "task_telephone.csv"]
+        # PDF 처리기 초기화
+        self.pdf_processor = PDFProcessor()
+        
+        # 처리할 파일 정의
+        self.hakchik_file = self.source_dir / "hakchik.pdf"
+        self.operation_file = self.source_dir / "operation_test.pdf"
+        self.telephone_file = self.source_dir / "task_telephone.csv"
     
-    def get_schema_files(self) -> Dict[str, str]:
-        """Return schema validation files for CSV data."""
-        return {
-            "task_telephone.csv": "general.schema.json"
-        }
-    
-    def process_domain_data(self, file_chunks: Dict[str, List[TextChunk]]) -> List[TextChunk]:
+    def process_domain_data(self) -> List[TextChunk]:
         """
-        Process general domain data with file-specific logic.
+        BaseLoader 인터페이스 구현: 일반 도메인 데이터 처리
         
-        Args:
-            file_chunks: Dictionary mapping filenames to their text chunks
-            
-        Returns:
-            List of processed TextChunks with appropriate metadata
+        ✅ notice 로더와 동일한 시그니처: process_domain_data(self)
         """
-        processed_chunks = []
+        all_chunks = []
         
-        # Process PDF files (operation_test.pdf, hakchik.pdf)
-        pdf_chunks = self._process_pdf_chunks(file_chunks)
-        processed_chunks.extend(pdf_chunks)
+        # 1. PDF 파일들 처리
+        pdf_chunks = self._process_pdf_files()
+        all_chunks.extend(pdf_chunks)
         
-        # Process CSV file (task_telephone.csv) 
-        csv_chunks = self._process_csv_chunks(file_chunks)
-        processed_chunks.extend(csv_chunks)
+        # 2. CSV 파일 처리 (업무담당자 연락처)
+        csv_chunks = self._process_telephone_csv()
+        all_chunks.extend(csv_chunks)
         
-        self.logger.info(f"Processed {len(processed_chunks)} total chunks from general domain")
-        return processed_chunks
+        logger.info(f"✅ 일반 도메인 통합 처리 완료: PDF {len(pdf_chunks)}개 + CSV {len(csv_chunks)}개 = 총 {len(all_chunks)}개 청크")
+        
+        return all_chunks
     
-    def _process_pdf_chunks(self, file_chunks: Dict[str, List[TextChunk]]) -> List[TextChunk]:
-        """Process PDF files with general document metadata."""
-        pdf_chunks = []
+    def _process_pdf_files(self) -> List[TextChunk]:
+        """PDF 파일들 직접 읽기 및 처리"""
+        chunks = []
         
-        for filename, chunks in file_chunks.items():
-            if not filename.endswith('.pdf'):
+        pdf_files = [
+            (self.hakchik_file, "regulations", "통합규정문서"),
+            (self.operation_file, "operations", "운영평가계획")
+        ]
+        
+        for pdf_file, category, doc_type in pdf_files:
+            if not pdf_file.exists():
+                logger.warning(f"PDF 파일이 없습니다: {pdf_file}")
                 continue
+            
+            try:
+                logger.info(f"📄 PDF 처리 시작: {pdf_file}")
                 
-            self.logger.info(f"Processing PDF file: {filename}")
-            
-            # Determine PDF category
-            if filename == "hakchik.pdf":
-                category = "regulations"
-                doc_type = "통합규정문서"  # 학칙+감점기준+전결규정
-            elif filename == "operation_test.pdf":
-                category = "operations"
-                doc_type = "운영평가계획"
-            else:
-                category = "general"
-                doc_type = "일반문서"
-            
-            for i, chunk in enumerate(chunks):
-                # Enhance chunk with general PDF metadata
-                enhanced_chunk = TextChunk(
-                    content=chunk.content,
-                    metadata={
+                # PDF 텍스트 추출
+                pdf_chunks = self.pdf_processor.process_pdf(pdf_file)
+                
+                for idx, chunk in enumerate(pdf_chunks):
+                    # 메타데이터 강화
+                    enhanced_metadata = {
                         **chunk.metadata,
-                        "source_file": filename,
-                        "file_type": "pdf",
-                        "category": category,
-                        "doc_type": doc_type,
-                        "domain": "general",
-                        "chunk_index": i,
-                        "total_chunks": len(chunks)
+                        'source_file': pdf_file.name,
+                        'source_id': f'general/{pdf_file.name}#page_{chunk.metadata.get("page_number", idx)}',
+                        'file_type': 'pdf',
+                        'category': category,
+                        'doc_type': doc_type,
+                        'domain': 'general',
+                        'chunk_index': idx,
+                        'cache_ttl': 2592000,  # 30일 TTL
+                        'processing_date': datetime.now().isoformat(),
+                        'chunk_type': 'document'
                     }
-                )
-                pdf_chunks.append(enhanced_chunk)
+                    
+                    enhanced_chunk = TextChunk(
+                        text=chunk.text,
+                        metadata=enhanced_metadata
+                    )
+                    
+                    chunks.append(enhanced_chunk)
                 
-        self.logger.info(f"Generated {len(pdf_chunks)} PDF chunks")
-        return pdf_chunks
+                logger.info(f"✅ {pdf_file.name} 처리 완료: {len(pdf_chunks)}개 청크")
+                
+            except Exception as e:
+                logger.error(f"❌ PDF 파일 처리 실패 ({pdf_file}): {e}")
+                continue
+        
+        return chunks
     
-    def _process_csv_chunks(self, file_chunks: Dict[str, List[TextChunk]]) -> List[TextChunk]:
-        """Process task_telephone.csv with preserved Colab template."""
-        csv_chunks = []
+    def _process_telephone_csv(self) -> List[TextChunk]:
+        """업무담당자 연락처 CSV 직접 읽기 및 처리 (기존 코랩 템플릿 보존)"""
+        chunks = []
         
-        # Look for task_telephone.csv
-        if "task_telephone.csv" not in file_chunks:
-            self.logger.warning("task_telephone.csv not found in file_chunks")
-            return csv_chunks
-            
-        self.logger.info("Processing task_telephone.csv with preserved template")
-        
-        # Read CSV file directly to apply template
-        csv_path = os.path.join(self.source_path, "task_telephone.csv")
+        if not self.telephone_file.exists():
+            logger.warning(f"연락처 파일이 없습니다: {self.telephone_file}")
+            return chunks
         
         try:
-            # Try UTF-8 first, fallback to other encodings if needed
-            try:
-                df = pd.read_csv(csv_path, encoding='utf-8')
-            except UnicodeDecodeError:
-                self.logger.warning("UTF-8 encoding failed, trying cp949...")
-                df = pd.read_csv(csv_path, encoding='cp949')
-            except UnicodeDecodeError:
-                self.logger.warning("cp949 encoding failed, trying euc-kr...")
-                df = pd.read_csv(csv_path, encoding='euc-kr')
-                
-            # Apply preserved Colab template
+            logger.info(f"📞 연락처 CSV 처리 시작: {self.telephone_file}")
+            
+            # CSV 인코딩 자동 감지 및 읽기
+            df = self._read_csv_with_encoding(self.telephone_file)
+            
+            if df is None:
+                return chunks
+            
+            logger.info(f"📄 연락처 데이터: {len(df)}행 로드됨")
+            
+            # 각 행을 기존 코랩 템플릿으로 변환
             for idx, row in df.iterrows():
-                # Use EXACT template from existing Colab code
-                chunk_text = (
-                    f"담당업무: {row['담당업무']}\n"
-                    f"  - 담당자: {row['부서']} {row['직책']}\n"
-                    f"  - 연락처: {row['전화번호']}\n"
-                )
-                
-                chunk = TextChunk(
-                    content=chunk_text,
-                    metadata={
-                        "source_file": "task_telephone.csv",
-                        "file_type": "csv", 
-                        "category": "contact",
-                        "doc_type": "업무담당자연락처",
-                        "domain": "general",
-                        "row_index": idx,
-                        "department": str(row['부서']),
-                        "position": str(row['직책']),
-                        "phone": str(row['전화번호']),
-                        "task_area": str(row['담당업무'])
+                try:
+                    # 기존 코랩 템플릿 완벽 보존
+                    chunk_text = (
+                        f"담당업무: {row['담당업무']}\n"
+                        f"  - 담당자: {row['부서']} {row['직책']}\n"
+                        f"  - 연락처: {row['전화번호']}\n"
+                    )
+                    
+                    # 메타데이터 생성
+                    metadata = {
+                        'source_file': 'task_telephone.csv',
+                        'source_id': f'general/task_telephone.csv#row_{idx}',
+                        'file_type': 'csv',
+                        'category': 'contact',
+                        'doc_type': '업무담당자연락처',
+                        'domain': 'general',
+                        'row_index': idx,
+                        'department': str(row['부서']),
+                        'position': str(row['직책']),
+                        'phone': str(row['전화번호']),
+                        'task_area': str(row['담당업무']),
+                        'cache_ttl': 2592000,  # 30일 TTL
+                        'processing_date': datetime.now().isoformat(),
+                        'chunk_type': 'contact'
                     }
-                )
-                csv_chunks.append(chunk)
-                
-            self.logger.info(f"Generated {len(csv_chunks)} contact chunks using preserved template")
+                    
+                    chunk = TextChunk(
+                        text=chunk_text,
+                        metadata=metadata
+                    )
+                    
+                    chunks.append(chunk)
+                    
+                except Exception as e:
+                    logger.error(f"연락처 행 {idx} 처리 실패: {e}")
+                    continue
+            
+            logger.info(f"✅ 연락처 CSV 처리 완료: {len(chunks)}개 청크 생성 (기존 템플릿 보존)")
             
         except Exception as e:
-            self.logger.error(f"Failed to process task_telephone.csv: {e}")
-            self.logger.error("Please check file encoding and column names")
-            # Continue without failing entire process
-            
-        return csv_chunks
+            logger.error(f"❌ 연락처 CSV 파일 처리 실패: {e}")
+        
+        return chunks
     
-    def _create_hakchik_special_chunks(self, content: str) -> List[str]:
-        """
-        Special processing for hakchik.pdf (regulations document).
-        TODO: Add table extraction logic here if needed.
-        """
-        # For now, use standard chunking
-        # Future enhancement: extract and restructure table data
-        from utils.textifier import split_text_into_chunks
-        return split_text_into_chunks(content)
-    
-    def validate_processed_data(self, chunks: List[TextChunk]) -> bool:
-        """
-        Validate processed general domain data.
+    def _read_csv_with_encoding(self, csv_file: Path) -> Optional[pd.DataFrame]:
+        """인코딩 자동 감지로 CSV 읽기"""
+        encodings = ['utf-8', 'cp949', 'euc-kr', 'utf-8-sig']
         
-        Args:
-            chunks: List of processed TextChunks
-            
-        Returns:
-            bool: True if validation passes
-        """
-        if not chunks:
-            self.logger.warning("No chunks generated for general domain")
-            return False
-            
-        # Check required categories are present
-        categories = set(chunk.metadata.get('category', '') for chunk in chunks)
-        self.logger.info(f"Found categories: {categories}")
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(csv_file, encoding=encoding)
+                logger.info(f"CSV 파일 로드 성공 (인코딩: {encoding})")
+                
+                # 필수 컬럼 확인
+                required_columns = ['부서', '직책', '전화번호', '담당업무']
+                missing_columns = [col for col in required_columns if col not in df.columns]
+                
+                if missing_columns:
+                    logger.error(f"필수 컬럼 누락: {missing_columns}")
+                    logger.error(f"실제 컬럼: {list(df.columns)}")
+                    return None
+                
+                return df
+                
+            except UnicodeDecodeError:
+                logger.debug(f"인코딩 {encoding} 실패, 다음 시도...")
+                continue
+            except Exception as e:
+                logger.error(f"CSV 파일 읽기 실패 (인코딩: {encoding}): {e}")
+                continue
         
-        # Check for contact information chunks
-        contact_chunks = [c for c in chunks if c.metadata.get('category') == 'contact']
-        if contact_chunks:
-            self.logger.info(f"Successfully processed {len(contact_chunks)} contact entries")
-        
-        # Check for regulation chunks 
-        reg_chunks = [c for c in chunks if c.metadata.get('category') == 'regulations']
-        if reg_chunks:
-            self.logger.info(f"Successfully processed {len(reg_chunks)} regulation chunks")
-            
-        return True
+        logger.error(f"모든 인코딩 시도 실패: {csv_file}")
+        return None
 
+
+# ================================================================
+# 개발/테스트용 진입점
+# ================================================================
 
 def main():
-    """Main execution function for standalone running."""
+    """개발/테스트용 진입점"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    loader = GeneralLoader()
+    
     try:
-        loader = GeneralLoader()
-        success = loader.build_index()
+        # BaseLoader의 표준 인터페이스 사용
+        success = loader.build_vectorstore()
         
         if success:
-            print("✅ General domain vectorstore built successfully!")
-            return 0
+            logger.info("✅ 일반 도메인 벡터스토어 구축 완료")
         else:
-            print("❌ Failed to build general domain vectorstore")
-            return 1
+            logger.error("❌ 일반 도메인 벡터스토어 구축 실패")
             
     except Exception as e:
-        print(f"❌ Fatal error in general loader: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
+        logger.error(f"❌ 로더 실행 실패: {e}")
+        raise
 
 
-if __name__ == "__main__":
-    exit(main())
+if __name__ == '__main__':
+    main()
