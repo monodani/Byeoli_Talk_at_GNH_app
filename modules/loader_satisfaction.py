@@ -98,8 +98,15 @@ class SatisfactionLoader(BaseLoader):
         try:
             logger.info(f"📊 교육과정 만족도 처리 시작: {self.course_file}")
             
-            # CSV 직접 읽기
-            df = pd.read_csv(self.course_file, encoding='utf-8')
+            # CSV 직접 읽기 (자동 인코딩 감지)
+            try:
+                # 1. 먼저 utf-8로 시도 (표준)
+                df = pd.read_csv(self.course_file, encoding='utf-8')
+            except UnicodeDecodeError:
+                # 2. 실패 시, 한국어 CSV에 자주 사용되는 cp949로 재시도
+                df = pd.read_csv(self.course_file, encoding='cp949')
+                logger.warning("⚠️ UTF-8 디코딩 실패. CP949 인코딩으로 다시 로드했습니다.")
+
             logger.info(f"📄 교육과정 만족도 데이터: {len(df)}행 로드됨")
             
             # 각 행을 TextChunk로 변환
@@ -162,8 +169,15 @@ class SatisfactionLoader(BaseLoader):
         try:
             logger.info(f"📊 교과목 만족도 처리 시작: {self.subject_file}")
             
-            # CSV 직접 읽기
-            df = pd.read_csv(self.subject_file, encoding='utf-8')
+            # CSV 직접 읽기 (자동 인코딩 감지)
+            try:
+                # 1. 먼저 utf-8로 시도 (표준)
+                df = pd.read_csv(self.subject_file, encoding='utf-8')
+            except UnicodeDecodeError:
+                # 2. 실패 시, 한국어 CSV에 자주 사용되는 cp949로 재시도
+                df = pd.read_csv(self.subject_file, encoding='cp949')
+                logger.warning("⚠️ UTF-8 디코딩 실패. CP949 인코딩으로 다시 로드했습니다.")
+            
             logger.info(f"📄 교과목 만족도 데이터: {len(df)}행 로드됨")
             
             # 각 행을 TextChunk로 변환
