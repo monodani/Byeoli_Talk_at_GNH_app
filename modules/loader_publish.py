@@ -8,6 +8,7 @@ notice 로더 패턴을 따라 완전히 수정됨:
 - PyPDF2 직접 사용으로 PDF 읽기
 - BaseLoader 표준 패턴 완전 준수
 - 기존 템플릿 시스템 유지
+- Citation 모델 유효성 검사 오류 수정 (context 길이 제한)
 """
 
 import logging
@@ -117,6 +118,10 @@ class PublishLoader(BaseLoader):
                             logger.debug(f"페이지 {page_num}: 텍스트가 너무 짧거나 없음 (건너뜀)")
                             continue
                         
+                        # Pydantic Citation 모델의 context 필드 유효성 검사 오류를 방지하기 위해 
+                        # context의 길이를 200자로 제한합니다.
+                        truncated_content = page_text[:200] + '...' if len(page_text) > 200 else page_text
+                        
                         # 템플릿 적용
                         formatted_content = self._apply_template(
                             content=page_text.strip(),
@@ -139,7 +144,9 @@ class PublishLoader(BaseLoader):
                             'template_applied': template_key,
                             'cache_ttl': 2592000,  # 30일 TTL
                             'processing_date': datetime.now().isoformat(),
-                            'chunk_type': 'document_page'
+                            'chunk_type': 'document_page',
+                            # ✅ context 길이 제한 로직을 적용한 content 필드
+                            'content': truncated_content
                         }
                         
                         chunk = TextChunk(
