@@ -48,7 +48,7 @@ class BaseLoader(ABC):
     - 에러 처리 및 로깅
     """
     def __init__(self, domain=None, loader_id=None, source_dir=None, vectorstore_dir=None, target_dir=None, index_name=None, schema_dir=None, **kwargs):
-    """
+        """
     BaseLoader 초기화
     
     Args:
