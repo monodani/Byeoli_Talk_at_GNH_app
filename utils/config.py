@@ -11,12 +11,13 @@ Configuration Module: 환경변수 로드/검증 및 전역 설정
 - .env.example과 변수명 통일
 - context_manager.py 호환성 보장
 - 환경변수 로드 로직 개선
+✅ HANDLERS 필드 추가 (index_manager.py 호환성)
 """
 
 import os
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
@@ -66,6 +67,16 @@ class AppConfig:
     ROUTER_CANDIDATE_SELECTION_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("ROUTER_CANDIDATE_SELECTION_TIMEOUT", "0.4")))
     ROUTER_HANDLER_EXECUTION_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("ROUTER_HANDLER_EXECUTION_TIMEOUT", "1.1")))
     ROUTER_TOTAL_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("TIMEBOX_S", os.getenv("ROUTER_TOTAL_TIMEOUT", "1.5"))))
+    
+    # ✅ 핸들러 도메인 목록 (index_manager.py 호환성을 위해 추가)
+    HANDLERS: List[str] = field(default_factory=lambda: [
+        "satisfaction",
+        "general", 
+        "publish",
+        "cyber",
+        "menu",
+        "notice"
+    ])
     
     # 컨피던스 임계값 설정 (.env.example과 통일)
     CONFIDENCE_THRESHOLD_GENERAL: float = field(default_factory=lambda: float(os.getenv("TH_GENERAL", os.getenv("CONFIDENCE_THRESHOLD_GENERAL", "0.70"))))
@@ -169,6 +180,12 @@ class AppConfig:
         # 타임아웃 검증
         if self.ROUTER_TOTAL_TIMEOUT <= 0:
             print(f"⚠️ 잘못된 타임아웃 설정: {self.ROUTER_TOTAL_TIMEOUT}")
+        
+        # ✅ HANDLERS 검증
+        if not self.HANDLERS:
+            print("⚠️ HANDLERS 리스트가 비어있습니다.")
+        else:
+            print(f"✅ HANDLERS 검증 완료: {len(self.HANDLERS)}개 도메인 ({', '.join(self.HANDLERS)})")
     
     def get(self, key: str, default: Any = None) -> Any:
         """
@@ -507,6 +524,7 @@ def print_config_summary():
     print(f"🤖 메인 모델: {config.OPENAI_MODEL_MAIN}")
     print(f"🔄 라우터 모델: {config.OPENAI_MODEL_ROUTER}")
     print(f"⏱️ 총 타임박스: {config.ROUTER_TOTAL_TIMEOUT}초")
+    print(f"🎯 처리 도메인: {', '.join(config.HANDLERS)}")  # ✅ HANDLERS 출력 추가
     
     print(f"\n📊 컨피던스 임계값:")
     for handler, threshold in config.confidence_thresholds.items():
@@ -534,6 +552,15 @@ def test_config():
         # 설정 로드 테스트
         config = get_config()
         print("✅ 설정 로드 성공")
+        
+        # ✅ HANDLERS 필드 검증 추가
+        assert hasattr(config, 'HANDLERS'), "HANDLERS 필드가 없습니다"
+        assert isinstance(config.HANDLERS, list), "HANDLERS가 리스트가 아닙니다"
+        assert len(config.HANDLERS) == 6, f"HANDLERS 개수 불일치: {len(config.HANDLERS)}"
+        expected_handlers = ["satisfaction", "general", "publish", "cyber", "menu", "notice"]
+        for handler in expected_handlers:
+            assert handler in config.HANDLERS, f"필수 핸들러 누락: {handler}"
+        print("✅ HANDLERS 필드 검증 통과")
         
         # 주요 설정값 검증
         assert config.OPENAI_MODEL_ROUTER == "gpt-4o-mini", f"라우터 모델 불일치: {config.OPENAI_MODEL_ROUTER}"
