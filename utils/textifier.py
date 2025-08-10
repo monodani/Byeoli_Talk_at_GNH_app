@@ -103,8 +103,9 @@ class TextChunk:
 class DocumentProcessor(ABC):
     """문서 처리기 기본 추상 클래스"""
     
-    def __init__(self, root_dir: Path):
-        self.root_dir = Path(root_dir)
+    def __init__(self, root_dir: Optional[Path] = None):
+        """root_dir 매개변수에 None 기본값 제공"""
+        self.root_dir = root_dir if root_dir is not None else Path(".")
         self.chunk_size = 1000  # 기본 청크 크기
         self.chunk_overlap = 100  # 기본 오버랩
     
