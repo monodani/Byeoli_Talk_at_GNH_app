@@ -47,36 +47,37 @@ class BaseLoader(ABC):
     - 해시 기반 증분 빌드
     - 에러 처리 및 로깅
     """
+    
     def __init__(self, domain=None, loader_id=None, source_dir=None, vectorstore_dir=None, target_dir=None, index_name=None, schema_dir=None, **kwargs):
         """
-    BaseLoader 초기화
+        BaseLoader 초기화
     
-    Args:
-        domain: 도메인 이름 (예: "satisfaction") 
-        loader_id: 로더 ID (domain과 동일, 호환성용)
-        source_dir: 소스 데이터 디렉터리
-        vectorstore_dir: 벡터스토어 출력 디렉터리  
-        target_dir: 벡터스토어 출력 디렉터리 (vectorstore_dir과 동일, 호환성용)
-        index_name: 인덱스 파일명
-        schema_dir: 스키마 디렉터리 (선택적)
-    """
-    # 호환성 처리
-    self.domain = domain or loader_id
-    self.source_dir = Path(source_dir or ".")
+        Args:
+            domain: 도메인 이름 (예: "satisfaction") 
+            loader_id: 로더 ID (domain과 동일, 호환성용)
+            source_dir: 소스 데이터 디렉터리
+            vectorstore_dir: 벡터스토어 출력 디렉터리  
+            target_dir: 벡터스토어 출력 디렉터리 (vectorstore_dir과 동일, 호환성용)
+            index_name: 인덱스 파일명
+            schema_dir: 스키마 디렉터리 (선택적)
+        """
+        # 호환성 처리
+        self.domain = domain or loader_id
+        self.source_dir = Path(source_dir or ".")
     
-    # target_dir도 받기 (vectorstore_dir 대신)
-    if target_dir:
-        self.vectorstore_dir = Path(target_dir)
-    else:
-        self.vectorstore_dir = Path(vectorstore_dir or ".")
+        # target_dir도 받기 (vectorstore_dir 대신)
+        if target_dir:
+            self.vectorstore_dir = Path(target_dir)
+        else:
+            self.vectorstore_dir = Path(vectorstore_dir or ".")
     
-    # index_name 기본값 설정  
-    self.index_name = index_name or f"{self.domain}_index"
+        # index_name 기본값 설정  
+        self.index_name = index_name or f"{self.domain}_index"
     
-    # 디렉터리 생성
-    self.vectorstore_dir.mkdir(parents=True, exist_ok=True)
+        # 디렉터리 생성
+        self.vectorstore_dir.mkdir(parents=True, exist_ok=True)
     
-    logger.info(f"✨ {self.domain.upper()} BaseLoader 초기화 완료")
+        logger.info(f"✨ {self.domain.upper()} BaseLoader 초기화 완료")
     
     @abstractmethod
     def process_domain_data(self) -> List[TextChunk]:
