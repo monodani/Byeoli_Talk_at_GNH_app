@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - satisfactionHandler
+경상남도인재개발원 RAG 챗봇 - satisfaction_handler
 
 교육과정 및 교과목 만족도 조사 데이터 전용 핸들러
-BaseHandler를 상속받아 만족도 도메인 특화 기능 구현
+base_handler를 상속받아 만족도 도메인 특화 기능 구현
 
 주요 특징:
 - 기존 코랩 검증된 "벼리" 프롬프트 보존
@@ -16,14 +16,14 @@ import logging
 from typing import List, Dict, Any, Tuple
 
 # 프로젝트 모듈
-from handlers.base_handler import BaseHandler
+from handlers.base_handler import base_handler
 from utils.contracts import QueryRequest, HandlerResponse
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
 
 
-class satisfactionHandler(baseHandler):
+class satisfaction_handler(base_handler):
     """
     만족도 조사 데이터 전용 핸들러
     
@@ -41,7 +41,7 @@ class satisfactionHandler(baseHandler):
             confidence_threshold=0.68
         )
         
-        logger.info("📊 satisfactionHandler 초기화 완료 (θ=0.68)")
+        logger.info("📊 satisfaction_handler 초기화 완료 (θ=0.68)")
     
     def get_system_prompt(self) -> str:
         """만족도 전용 시스템 프롬프트 (기존 코랩 검증 버전)"""
@@ -109,7 +109,7 @@ class satisfactionHandler(baseHandler):
             logger.info(f"🔄 Follow-up 질의: 임계값 완화 {original_threshold} → {self.confidence_threshold}")
         
         try:
-            # BaseHandler의 표준 처리 로직 사용
+            # base_handler의 표준 처리 로직 사용
             response = super().handle(request)
             
             # 만족도 특화 후처리
@@ -183,7 +183,7 @@ def handle_satisfaction_query(query: str, temperature: float = 0.1, k: int = 5) 
     from utils.contracts import QueryRequest
     import uuid
     
-    handler = satisfactionHandler()
+    handler = satisfaction_handler()
     request = QueryRequest(
         text=query,
         context=None,
@@ -205,7 +205,7 @@ if __name__ == "__main__":
         "교과목 만족도 상위 5개 강의는?"
     ]
     
-    handler = satisfactionHandler()
+    handler = satisfaction_handler()
     
     for i, query in enumerate(test_queries, 1):
         print(f"\n=== 테스트 {i}: {query} ===")
