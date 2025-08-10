@@ -629,4 +629,3 @@ if __name__ == "__main__":
         print(f"핸들러: {response.handler_id}")
     
     asyncio.run(main())
-        """
