@@ -11,6 +11,7 @@ base_handler를 상속받아 발행물 도메인 특화 기능 구현
 - 컨피던스 임계값 θ=0.74 적용 (최고 정확도 요구)
 - 공식 문서 정확성 및 출처 명시 강화
 - 페이지별 상세 인용 및 교차 참조
+- 담당부서별 역할 구분 반영 (교육기획담당 vs 평가분석담당)
 """
 
 import logging
@@ -41,6 +42,7 @@ class publish_handler(base_handler):
     - 페이지별 정확한 출처 인용
     - 계획서 vs 평가서 내용 구분
     - 정량적 데이터 정확성 강조
+    - 담당부서별 역할에 따른 문의처 구분 안내
     """
     
     def __init__(self):
@@ -66,20 +68,34 @@ class publish_handler(base_handler):
             }
         }
         
-        # 주요 검색 영역 카테고리
+        # 주요 검색 영역 카테고리 (담당부서별 구분)
         self.content_categories = {
-            'policy': ['정책', '목표', '방향', '방침', '전략'],
-            'statistics': ['실적', '통계', '수치', '인원', '과정수', '기수'],
-            'curriculum': ['교육과정', '과정', '프로그램', '교육내용', '교과목'],
-            'evaluation': ['평가', '만족도', '성과', '결과', '효과성'],
-            'organization': ['조직', '기구', '인원', '예산', '시설'],
-            'schedule': ['일정', '계획', '운영', '시기', '기간']
+            'planning': {  # 교육기획담당 영역
+                'keywords': ['계획', '목표', '방향', '방침', '전략', '교육과정', '프로그램', '일정', '운영'],
+                'department': '교육기획담당',
+                'contact': '055-254-2052'
+            },
+            'evaluation': {  # 평가분석담당 영역
+                'keywords': ['평가', '만족도', '성과', '결과', '효과성', '분석', '역량진단', '성과관리'],
+                'department': '평가분석담당', 
+                'contact': '055-254-2022'
+            },
+            'statistics': {  # 공통 (문의 내용에 따라 구분)
+                'keywords': ['실적', '통계', '수치', '인원', '과정수', '기수'],
+                'department': '해당담당',
+                'contact': '교육기획담당(055-254-2052) 또는 평가분석담당(055-254-2022)'
+            },
+            'organization': {  # 교육기획담당 영역
+                'keywords': ['조직', '기구', '인원', '예산', '시설', '교수요원'],
+                'department': '교육기획담당',
+                'contact': '055-254-2052'
+            }
         }
         
         logger.info("📚 publish_handler 초기화 완료 (θ=0.74)")
     
     def get_system_prompt(self) -> str:
-        """발행물 전용 시스템 프롬프트"""
+        """발행물 전용 시스템 프롬프트 (담당부서 구분 반영)"""
         return """당신은 "벼리(영문명: Byeoli)"입니다. 경상남도인재개발원의 공식 발행물(교육훈련계획서, 종합평가서)을 기반으로 교육 정책, 계획, 성과 등에 대해 정확하고 공식적으로 답변하는 전문 챗봇입니다.
 
 제공된 공식 발행물 데이터를 기반으로 다음 지침을 엄격히 따르십시오:
@@ -131,7 +147,7 @@ class publish_handler(base_handler):
 
 8. **한계 명시 및 추가 안내**:
    - 문서에 없는 정보는 명확히 "해당 정보는 제공된 공식 문서에서 찾을 수 없습니다" 안내
-   - 최신 정보나 세부 사항이 필요한 경우 담당부서 안내
+   - 최신 정보나 세부 사항이 필요한 경우 해당 담당부서 안내
    - 관련 다른 문서나 자료 참조 필요 시 안내
 
 9. **비교 분석 지원**:
@@ -144,10 +160,17 @@ class publish_handler(base_handler):
     - 성과 분석을 통한 개선 방향 제시
     - 정책 목표와 실행 계획 간의 연계성 설명
 
-문의처: 교육기획담당 (055-254-2052), 평가분석담당 (055-254-2023)"""
+11. **담당부서별 역할 구분 안내**:
+    - **교육기획담당**: 교육훈련계획, 교육과정 운영, 일정 관련 문의
+    - **평가분석담당**: 교육평가, 만족도 조사, 성과분석 관련 문의
+    - 질문 내용에 따라 적절한 담당부서 연락처 안내
+
+문의처: 
+- 교육훈련계획·일정 관련: 교육기획담당 (055-254-2052)
+- 교육평가·만족도 관련: 평가분석담당 (055-254-2022)"""
 
     def format_context(self, search_results: List[Tuple[str, float, Dict[str, Any]]]) -> str:
-        """발행물 데이터를 컨텍스트로 포맷"""
+        """발행물 데이터를 컨텍스트로 포맷 (담당부서 안내 반영)"""
         if not search_results:
             return "관련 공식 발행물 정보를 찾을 수 없습니다."
         
@@ -200,12 +223,15 @@ class publish_handler(base_handler):
                 context_parts.append(f"{text[:300]}...")
                 context_parts.append("")
         
-        # 문서 정보 및 안내사항
-        context_parts.append("=== 📌 문서 정보 ===")
+        # 문서 정보 및 담당부서별 안내사항
+        context_parts.append("=== 📌 문서 정보 및 담당부서 안내 ===")
         context_parts.append("• 2025 교육훈련계획서: 향후 계획, 목표, 운영방안")
         context_parts.append("• 2024 종합평가서: 실적, 성과, 결과, 평가내용")
         context_parts.append("• 모든 수치와 내용은 공식 문서 기준")
-        context_parts.append("• 문의: 교육기획담당 055-254-2052")
+        context_parts.append("")
+        context_parts.append("📞 담당부서별 문의처:")
+        context_parts.append("• 교육훈련계획·일정 관련: 교육기획담당 (055-254-2052)")
+        context_parts.append("• 교육평가·만족도 관련: 평가분석담당 (055-254-2022)")
         
         final_context = "\n".join(context_parts)
         
@@ -231,18 +257,18 @@ class publish_handler(base_handler):
         # 현재/일반 관련 키워드
         return 'present'
     
-    def _detect_content_category(self, query: str) -> Optional[str]:
-        """질문의 내용 카테고리 감지"""
+    def _detect_content_category(self, query: str) -> Optional[Dict[str, str]]:
+        """질문의 내용 카테고리 및 담당부서 감지"""
         query_lower = query.lower()
         
         best_category = None
         best_score = 0
         
-        for category, keywords in self.content_categories.items():
-            score = sum(1 for keyword in keywords if keyword in query_lower)
+        for category, info in self.content_categories.items():
+            score = sum(1 for keyword in info['keywords'] if keyword in query_lower)
             if score > best_score:
                 best_score = score
-                best_category = category
+                best_category = info
         
         return best_category if best_score > 0 else None
     
@@ -267,9 +293,9 @@ class publish_handler(base_handler):
         return patterns
     
     def _enhance_response_with_document_guidance(self, base_response: str, query: str) -> str:
-        """문서별 특성을 고려한 응답 강화"""
+        """문서별 특성과 담당부서를 고려한 응답 강화"""
         timeframe = self._detect_query_timeframe(query)
-        category = self._detect_content_category(query)
+        category_info = self._detect_content_category(query)
         numerical_patterns = self._extract_numerical_patterns(query)
         
         enhancements = []
@@ -280,11 +306,14 @@ class publish_handler(base_handler):
         elif timeframe == 'future':
             enhancements.append("📋 향후 계획이나 목표 관련 정보는 '2025 교육훈련계획서'를 우선 참조하시기 바랍니다.")
         
-        # 카테고리별 안내
-        if category == 'statistics':
-            enhancements.append("📈 정확한 통계 데이터는 공식 문서의 표와 그래프를 참조하며, 모든 수치는 검증된 공식 자료입니다.")
-        elif category == 'policy':
-            enhancements.append("🎯 정책 관련 내용은 기관의 공식 방침이므로, 문의사항은 교육기획담당에 직접 확인하시기 바랍니다.")
+        # 카테고리 및 담당부서별 안내
+        if category_info:
+            if category_info['department'] == '교육기획담당':
+                enhancements.append(f"🎯 교육훈련계획 및 운영 관련 상세 문의는 {category_info['department']}({category_info['contact']})으로 연락하시기 바랍니다.")
+            elif category_info['department'] == '평가분석담당':
+                enhancements.append(f"📈 교육평가 및 성과분석 관련 상세 문의는 {category_info['department']}({category_info['contact']})으로 연락하시기 바랍니다.")
+            else:  # 공통/복합 영역
+                enhancements.append(f"📞 구체적인 문의사항은 {category_info['contact']}으로 연락하시기 바랍니다.")
         
         # 수치 관련 안내
         if numerical_patterns:
@@ -294,23 +323,32 @@ class publish_handler(base_handler):
         if '비교' in query or '차이' in query:
             enhancements.append("🔄 연도별 비교나 영역별 비교가 필요한 경우, 계획서와 평가서를 교차 참조하여 종합적으로 분석해드립니다.")
         
+        # 특정 키워드에 따른 담당부서 안내 강화
+        query_lower = query.lower()
+        if any(keyword in query_lower for keyword in ['만족도', '평가', '성과']):
+            contact_info = "\n\n📞 교육평가·만족도 관련 상세 문의: 평가분석담당 (055-254-2022)"
+        elif any(keyword in query_lower for keyword in ['계획', '일정', '과정', '운영']):
+            contact_info = "\n\n📞 교육훈련계획·일정 관련 상세 문의: 교육기획담당 (055-254-2052)"
+        else:
+            contact_info = "\n\n📞 문의처:\n• 교육훈련계획·일정: 교육기획담당 (055-254-2052)\n• 교육평가·만족도: 평가분석담당 (055-254-2022)"
+        
         # 추가 안내사항이 있는 경우에만 추가
         if enhancements:
             enhanced_response = base_response + "\n\n=== 📌 참고사항 ===\n" + "\n".join(enhancements)
-            enhanced_response += "\n\n📞 상세 문의: 교육기획담당 055-254-2052"
+            enhanced_response += contact_info
             return enhanced_response
         
-        return base_response
+        return base_response + contact_info
     
     def handle(self, request: QueryRequest) -> HandlerResponse:
         """
         publish 도메인 특화 처리
-        기본 handle() 호출 후 문서별 안내 정보 자동 추가
+        기본 handle() 호출 후 담당부서별 안내 정보 자동 추가
         """
         # 기본 핸들러 로직 실행
         response = super().handle(request)
         
-        # publish 도메인 특화: 문서별 안내 정보 보강
+        # publish 도메인 특화: 담당부서별 안내 정보 보강
         if response.confidence >= self.confidence_threshold:
             enhanced_answer = self._enhance_response_with_document_guidance(response.answer, request.text)
             response.answer = enhanced_answer
@@ -327,11 +365,13 @@ if __name__ == "__main__":
     print("📚 Publish Handler 테스트 시작")
     
     test_queries = [
-        "2025년 교육훈련 목표가 뭐야?",
-        "2024년 교육실적은 어떻게 돼?", 
-        "교육과정 수와 교육인원 통계 알려줘",
-        "작년 대비 올해 계획의 차이점은?",
-        "교육만족도 평가결과는 어떤가요?"
+        "2025년 교육훈련 목표가 뭐야?",  # 교육기획담당
+        "2024년 교육실적은 어떻게 돼?",   # 교육기획담당 
+        "교육과정 수와 교육인원 통계 알려줘",  # 교육기획담당
+        "작년 대비 올해 계획의 차이점은?",  # 교육기획담당
+        "교육만족도 평가결과는 어떤가요?",  # 평가분석담당
+        "성과 분석 결과는 어떻게 나왔나요?",  # 평가분석담당
+        "역량진단 결과를 알고 싶습니다",  # 평가분석담당
     ]
     
     handler = publish_handler()
