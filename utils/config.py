@@ -560,3 +560,5 @@ if __name__ == "__main__":
         print_config_summary()
     else:
         print("💥 설정 테스트 실패 - 문제를 해결한 후 다시 시도하세요.")
+
+config = get_config()
