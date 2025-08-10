@@ -1,4 +1,4 @@
-def validate_schema(self, file_path: Path, schema_path: Path) -> bool:
+    def validate_schema(self, file_path: Path, schema_path: Path) -> bool:
         """CSV 파일의 스키마 검증 강화"""
         try:
             with open(schema_path, 'r', encoding='utf-8') as f:
