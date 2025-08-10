@@ -1,536 +1,670 @@
+#!/usr/bin/env python3
 """
-IndexManager for BYEOLI_TALK_AT_GNH_app.
+경상남도인재개발원 RAG 챗봇 - index_manager.py
 
-Singleton class that manages all FAISS vector stores with hot-swapping capabilities.
-Preloads all indices at app startup and monitors file changes for automatic reloading.
+IndexManager 싱글톤: 모든 벡터스토어 중앙 관리
+- 앱 기동 시 모든 FAISS 인덱스 사전 로드
+- 해시 기반 파일 변경 감지로 핫스왑
+- 전역 공유로 핸들러 간 일관성 보장
+- 메모리 효율적인 단일 인스턴스 관리
+
+핵심 특징:
+- 싱글톤 패턴으로 전역 인스턴스 보장
+- 지연 로딩 및 캐시 기반 성능 최적화
+- 파일 해시 감시로 자동 핫스왑
+- 에러 복구 및 안전망 제공
 """
 
-import os
-import time
 import hashlib
-import threading
-import pickle
-from pathlib import Path
-from typing import Dict, Optional, List, Tuple, Any
-from dataclasses import dataclass
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+import threading
+import time
+from pathlib import Path
+from typing import Dict, Optional, Any, List, Tuple
+from datetime import datetime
 
-import faiss
+# 프로젝트 모듈
+from utils.config import config
+from utils.contracts import HandlerType
+
+# 외부 라이브러리
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import OpenAIEmbeddings
+from rank_bm25 import BM25Okapi
 import numpy as np
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 
-from utils.config import get_config
-from utils.contracts import ComponentStatus, HealthCheck
-
-
+# 로깅 설정
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class IndexInfo:
-    """Information about a loaded index."""
-    name: str
-    faiss_index: faiss.Index
-    metadata: Dict[str, Any]
-    file_hash: str
-    loaded_at: float
-    access_count: int = 0
-    last_accessed: float = 0.0
-    
-    def update_access(self):
-        """Update access statistics."""
-        self.access_count += 1
-        self.last_accessed = time.time()
+# ================================================================
+# 1. 벡터스토어 메타데이터 클래스
+# ================================================================
 
-
-class VectorStoreFileHandler(FileSystemEventHandler):
-    """File system event handler for vectorstore directory monitoring."""
+class VectorStoreMetadata:
+    """벡터스토어 메타데이터 및 상태 관리"""
     
-    def __init__(self, index_manager: 'IndexManager'):
-        self.index_manager = index_manager
-        self.debounce_time = 2.0  # seconds
-        self.pending_reloads = {}
+    def __init__(self, domain: str, vectorstore_dir: Path):
+        self.domain = domain
+        self.vectorstore_dir = vectorstore_dir
+        self.faiss_file = vectorstore_dir / f"{domain}_index.faiss"
+        self.pkl_file = vectorstore_dir / f"{domain}_index.pkl"
+        
+        # 상태 정보
+        self.vectorstore: Optional[FAISS] = None
+        self.bm25: Optional[BM25Okapi] = None
+        self.documents: List[str] = []
+        self.last_loaded: Optional[datetime] = None
+        self.file_hash: Optional[str] = None
+        self.load_count: int = 0
+        self.error_count: int = 0
+        
+    def exists(self) -> bool:
+        """벡터스토어 파일 존재 여부"""
+        return self.faiss_file.exists() and self.pkl_file.exists()
     
-    def on_modified(self, event):
-        """Handle file modification events."""
-        if event.is_directory:
-            return
+    def calculate_hash(self) -> str:
+        """벡터스토어 파일들의 해시 계산"""
+        if not self.exists():
+            return ""
         
-        file_path = Path(event.src_path)
-        
-        # Only process .faiss and .pkl files
-        if file_path.suffix not in ['.faiss', '.pkl']:
-            return
-        
-        # Extract index name from path
-        index_name = self._extract_index_name(file_path)
-        if not index_name:
-            return
-        
-        # Debounce rapid file changes
-        current_time = time.time()
-        if index_name in self.pending_reloads:
-            if current_time - self.pending_reloads[index_name] < self.debounce_time:
-                return
-        
-        self.pending_reloads[index_name] = current_time
-        
-        # Schedule reload after debounce period
-        threading.Timer(
-            self.debounce_time,
-            self._trigger_reload,
-            args=[index_name]
-        ).start()
-    
-    def _extract_index_name(self, file_path: Path) -> Optional[str]:
-        """Extract index name from file path."""
         try:
-            # Expected path: vectorstores/vectorstore_<name>/...
-            parts = file_path.parts
-            for i, part in enumerate(parts):
-                if part.startswith('vectorstore_'):
-                    return part.replace('vectorstore_', '')
-            return None
-        except Exception:
-            return None
-    
-    def _trigger_reload(self, index_name: str):
-        """Trigger index reload if file actually changed."""
-        try:
-            # Check if index is still pending reload (not already processed)
-            if index_name in self.pending_reloads:
-                del self.pending_reloads[index_name]
-                self.index_manager._reload_index_if_changed(index_name)
+            hash_md5 = hashlib.md5()
+            
+            # FAISS 파일 해시
+            with open(self.faiss_file, 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_md5.update(chunk)
+            
+            # PKL 파일 해시
+            with open(self.pkl_file, 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_md5.update(chunk)
+            
+            return hash_md5.hexdigest()
+            
         except Exception as e:
-            logger.error(f"Failed to reload index {index_name}: {e}")
+            logger.error(f"❌ {self.domain} 해시 계산 실패: {e}")
+            return ""
+    
+    def needs_reload(self) -> bool:
+        """재로드 필요 여부 확인"""
+        if not self.vectorstore:
+            return True
+        
+        current_hash = self.calculate_hash()
+        return current_hash != self.file_hash
+    
+    def mark_loaded(self, success: bool = True):
+        """로드 완료 마킹"""
+        self.last_loaded = datetime.now()
+        self.load_count += 1
+        if not success:
+            self.error_count += 1
+        self.file_hash = self.calculate_hash()
 
+
+# ================================================================
+# 2. IndexManager 싱글톤 클래스
+# ================================================================
 
 class IndexManager:
-    """Singleton manager for all FAISS vector indices."""
+    """
+    벡터스토어 인덱스 중앙 관리자 (싱글톤)
     
-    _instance: Optional['IndexManager'] = None
-    _initialized: bool = False
-    _lock = threading.RLock()
+    주요 기능:
+    - 모든 도메인의 벡터스토어 사전 로드
+    - 파일 변경 감지 및 자동 핫스왑
+    - 스레드 안전한 액세스 제공
+    - 성능 모니터링 및 에러 처리
+    """
     
-    def __new__(cls) -> 'IndexManager':
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super().__new__(cls)
-            return cls._instance
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
     
     def __init__(self):
-        with self._lock:
-            if not self._initialized:
-                self.config = get_config()
-                self.vectorstores_dir = self.config.paths.get_absolute_path(
-                    self.config.paths.vectorstores_dir
-                )
-                
-                # Index storage
-                self.indices: Dict[str, IndexInfo] = {}
-                self.loading_status: Dict[str, bool] = {}
-                self.load_errors: Dict[str, str] = {}
-                
-                # File monitoring
-                self.observer: Optional[Observer] = None
-                self.file_handler: Optional[VectorStoreFileHandler] = None
-                
-                # Thread safety
-                self.access_lock = threading.RLock()
-                
-                IndexManager._initialized = True
-                logger.info("IndexManager initialized")
-    
-    def preload_all_indices(self, max_workers: int = 3) -> Dict[str, bool]:
-        """
-        Preload all available indices in parallel.
-        
-        Args:
-            max_workers: Maximum number of threads for parallel loading
+        if hasattr(self, '_initialized') and self._initialized:
+            return
             
-        Returns:
-            Dict mapping index names to success status
+        # 초기화
+        self.embeddings = OpenAIEmbeddings()
+        self.domains = self._get_domain_configs()
+        self.metadata: Dict[str, VectorStoreMetadata] = {}
+        self._access_lock = threading.RLock()
+        
+        # 도메인별 메타데이터 초기화
+        for domain, config_info in self.domains.items():
+            self.metadata[domain] = VectorStoreMetadata(
+                domain=domain,
+                vectorstore_dir=config_info["path"]
+            )
+        
+        self._initialized = True
+        logger.info(f"🚀 IndexManager 싱글톤 초기화 완료: {len(self.domains)}개 도메인")
+    
+    def _get_domain_configs(self) -> Dict[str, Dict[str, Any]]:
+        """도메인별 설정 정보 반환"""
+        vectorstore_base = config.ROOT_DIR / "vectorstores"
+        
+        return {
+            "satisfaction": {
+                "path": vectorstore_base / "vectorstore_unified_satisfaction",
+                "handler_type": HandlerType.SATISFACTION
+            },
+            "general": {
+                "path": vectorstore_base / "vectorstore_general",
+                "handler_type": HandlerType.GENERAL
+            },
+            "menu": {
+                "path": vectorstore_base / "vectorstore_menu",
+                "handler_type": HandlerType.MENU
+            },
+            "cyber": {
+                "path": vectorstore_base / "vectorstore_cyber",
+                "handler_type": HandlerType.CYBER
+            },
+            "publish": {
+                "path": vectorstore_base / "vectorstore_unified_publish",
+                "handler_type": HandlerType.PUBLISH
+            },
+            "notice": {
+                "path": vectorstore_base / "vectorstore_notice",
+                "handler_type": HandlerType.NOTICE
+            }
+        }
+    
+    def preload_all(self) -> Dict[str, bool]:
         """
-        logger.info("Starting preload of all indices...")
+        모든 벡터스토어 사전 로드
+        
+        Returns:
+            Dict[str, bool]: 도메인별 로드 성공 여부
+        """
+        logger.info("📚 전체 벡터스토어 사전 로드 시작...")
         start_time = time.time()
         
-        # Discover available indices
-        available_indices = self._discover_indices()
-        if not available_indices:
-            logger.warning("No indices found in vectorstores directory")
-            return {}
-        
-        logger.info(f"Found {len(available_indices)} indices to load: {list(available_indices.keys())}")
-        
-        # Load indices in parallel
         results = {}
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit loading tasks
-            future_to_index = {
-                executor.submit(self._load_single_index, name, path): name
-                for name, path in available_indices.items()
-            }
-            
-            # Collect results
-            for future in as_completed(future_to_index):
-                index_name = future_to_index[future]
-                try:
-                    success = future.result()
-                    results[index_name] = success
-                    if success:
-                        logger.info(f"Successfully loaded index: {index_name}")
-                    else:
-                        logger.error(f"Failed to load index: {index_name}")
-                except Exception as e:
-                    logger.error(f"Exception loading index {index_name}: {e}")
-                    results[index_name] = False
-        
-        # Start file monitoring
-        self._start_file_monitoring()
+        for domain in self.domains.keys():
+            try:
+                success = self._load_domain(domain)
+                results[domain] = success
+                
+                if success:
+                    logger.info(f"✅ {domain} 로드 성공")
+                else:
+                    logger.warning(f"⚠️ {domain} 로드 실패")
+                    
+            except Exception as e:
+                logger.error(f"❌ {domain} 로드 중 예외: {e}")
+                results[domain] = False
         
         elapsed_time = time.time() - start_time
-        successful_loads = sum(1 for success in results.values() if success)
+        success_count = sum(1 for success in results.values() if success)
         
-        logger.info(
-            f"Preload completed in {elapsed_time:.2f}s. "
-            f"Loaded {successful_loads}/{len(available_indices)} indices successfully."
-        )
+        logger.info(f"📊 사전 로드 완료: {success_count}/{len(results)} 성공 ({elapsed_time:.2f}s)")
+        return results
+    
+    def _load_domain(self, domain: str) -> bool:
+        """
+        특정 도메인 벡터스토어 로드
+        
+        Args:
+            domain: 도메인 이름
+            
+        Returns:
+            bool: 로드 성공 여부
+        """
+        if domain not in self.metadata:
+            logger.error(f"❌ 알 수 없는 도메인: {domain}")
+            return False
+        
+        meta = self.metadata[domain]
+        
+        # 파일 존재 확인
+        if not meta.exists():
+            logger.warning(f"⚠️ {domain} 벡터스토어 파일이 없습니다: {meta.vectorstore_dir}")
+            return False
+        
+        try:
+            with self._access_lock:
+                # FAISS 벡터스토어 로드
+                vectorstore = FAISS.load_local(
+                    folder_path=str(meta.vectorstore_dir),
+                    embeddings=self.embeddings,
+                    allow_dangerous_deserialization=True,
+                    index_name=f"{domain}_index"
+                )
+                
+                # 문서 내용 추출 (BM25용)
+                documents = []
+                docstore = vectorstore.docstore._dict
+                
+                for doc_id in range(len(docstore)):
+                    doc = docstore.get(str(doc_id))
+                    if doc and hasattr(doc, 'page_content'):
+                        documents.append(doc.page_content)
+                
+                # BM25 인덱스 구축
+                bm25 = None
+                if documents:
+                    tokenized_docs = [doc.split() for doc in documents]
+                    bm25 = BM25Okapi(tokenized_docs)
+                
+                # 메타데이터 업데이트
+                meta.vectorstore = vectorstore
+                meta.bm25 = bm25
+                meta.documents = documents
+                meta.mark_loaded(success=True)
+                
+                logger.debug(f"📄 {domain}: {len(documents)}개 문서, BM25 {'✓' if bm25 else '✗'}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"❌ {domain} 벡터스토어 로드 실패: {e}")
+            meta.mark_loaded(success=False)
+            return False
+    
+    def get_vectorstore(self, domain: str) -> Optional[FAISS]:
+        """
+        도메인별 FAISS 벡터스토어 반환
+        
+        Args:
+            domain: 도메인 이름
+            
+        Returns:
+            Optional[FAISS]: 로드된 벡터스토어 또는 None
+        """
+        if domain not in self.metadata:
+            logger.error(f"❌ 알 수 없는 도메인: {domain}")
+            return None
+        
+        meta = self.metadata[domain]
+        
+        # 핫스왑 체크
+        if meta.needs_reload():
+            logger.info(f"🔄 {domain} 파일 변경 감지, 핫스왑 실행...")
+            self._load_domain(domain)
+        
+        return meta.vectorstore
+    
+    def get_bm25(self, domain: str) -> Optional[BM25Okapi]:
+        """
+        도메인별 BM25 인덱스 반환
+        
+        Args:
+            domain: 도메인 이름
+            
+        Returns:
+            Optional[BM25Okapi]: BM25 인덱스 또는 None
+        """
+        if domain not in self.metadata:
+            return None
+        
+        meta = self.metadata[domain]
+        
+        # 핫스왑 체크
+        if meta.needs_reload():
+            self._load_domain(domain)
+        
+        return meta.bm25
+    
+    def get_documents(self, domain: str) -> List[str]:
+        """
+        도메인별 문서 목록 반환
+        
+        Args:
+            domain: 도메인 이름
+            
+        Returns:
+            List[str]: 문서 텍스트 목록
+        """
+        if domain not in self.metadata:
+            return []
+        
+        meta = self.metadata[domain]
+        
+        # 핫스왑 체크
+        if meta.needs_reload():
+            self._load_domain(domain)
+        
+        return meta.documents.copy()
+    
+    def hybrid_search(
+        self, 
+        domain: str, 
+        query: str, 
+        k: int = 10,
+        rrf_k: int = 60
+    ) -> List[Tuple[str, float, Dict[str, Any]]]:
+        """
+        도메인별 하이브리드 검색 (FAISS + BM25 + RRF)
+        
+        Args:
+            domain: 검색 대상 도메인
+            query: 검색 쿼리
+            k: 반환할 결과 수
+            rrf_k: RRF 파라미터
+            
+        Returns:
+            List[Tuple[str, float, dict]]: (텍스트, 점수, 메타데이터) 튜플 목록
+        """
+        vectorstore = self.get_vectorstore(domain)
+        bm25 = self.get_bm25(domain)
+        documents = self.get_documents(domain)
+        
+        if not vectorstore:
+            logger.warning(f"⚠️ {domain} 벡터스토어를 사용할 수 없습니다")
+            return []
+        
+        try:
+            # 1. FAISS 검색
+            faiss_results = vectorstore.similarity_search_with_score(query, k=k)
+            faiss_docs = [(doc.page_content, score, doc.metadata) for doc, score in faiss_results]
+            
+            # 2. BM25 검색
+            bm25_docs = []
+            if bm25 and documents:
+                tokenized_query = query.split()
+                bm25_scores = bm25.get_scores(tokenized_query)
+                
+                # 상위 k개 선택
+                top_indices = np.argsort(bm25_scores)[-k:][::-1]
+                for idx in top_indices:
+                    if idx < len(documents):
+                        # 메타데이터 찾기
+                        doc_id = str(idx)
+                        metadata = {}
+                        if hasattr(vectorstore, 'docstore') and doc_id in vectorstore.docstore._dict:
+                            metadata = vectorstore.docstore._dict[doc_id].metadata
+                        
+                        bm25_docs.append((documents[idx], bm25_scores[idx], metadata))
+            
+            # 3. RRF 융합
+            combined_results = self._rrf_fusion(faiss_docs, bm25_docs, k, rrf_k)
+            
+            logger.debug(f"🔍 {domain} 하이브리드 검색: FAISS {len(faiss_docs)}, BM25 {len(bm25_docs)}, 융합 {len(combined_results)}")
+            return combined_results
+            
+        except Exception as e:
+            logger.error(f"❌ {domain} 하이브리드 검색 실패: {e}")
+            return []
+    
+    def _rrf_fusion(
+        self, 
+        faiss_results: List[Tuple[str, float, Dict]], 
+        bm25_results: List[Tuple[str, float, Dict]], 
+        k: int, 
+        rrf_k: int = 60
+    ) -> List[Tuple[str, float, Dict[str, Any]]]:
+        """
+        Reciprocal Rank Fusion (RRF) 알고리즘으로 결과 융합
+        
+        Args:
+            faiss_results: FAISS 검색 결과
+            bm25_results: BM25 검색 결과
+            k: 최종 반환할 결과 수
+            rrf_k: RRF 파라미터
+            
+        Returns:
+            List[Tuple]: 융합된 검색 결과
+        """
+        try:
+            # 문서별 점수 집계
+            doc_scores = {}
+            
+            # FAISS 결과 처리 (정규화된 순위 점수)
+            for rank, (text, score, metadata) in enumerate(faiss_results, 1):
+                doc_key = text[:100]  # 문서 식별용 키
+                if doc_key not in doc_scores:
+                    doc_scores[doc_key] = {
+                        'text': text,
+                        'metadata': metadata,
+                        'faiss_score': score,
+                        'bm25_score': 0.0,
+                        'rrf_score': 0.0
+                    }
+                
+                # RRF 점수 계산: 1 / (rank + k)
+                doc_scores[doc_key]['rrf_score'] += 1.0 / (rank + rrf_k)
+                doc_scores[doc_key]['faiss_score'] = max(doc_scores[doc_key]['faiss_score'], score)
+            
+            # BM25 결과 처리
+            for rank, (text, score, metadata) in enumerate(bm25_results, 1):
+                doc_key = text[:100]
+                if doc_key not in doc_scores:
+                    doc_scores[doc_key] = {
+                        'text': text,
+                        'metadata': metadata,
+                        'faiss_score': 0.0,
+                        'bm25_score': score,
+                        'rrf_score': 0.0
+                    }
+                
+                doc_scores[doc_key]['rrf_score'] += 1.0 / (rank + rrf_k)
+                doc_scores[doc_key]['bm25_score'] = max(doc_scores[doc_key]['bm25_score'], score)
+            
+            # RRF 점수 기준 정렬
+            sorted_docs = sorted(
+                doc_scores.values(),
+                key=lambda x: x['rrf_score'],
+                reverse=True
+            )
+            
+            # 상위 k개 반환
+            return [
+                (doc['text'], doc['rrf_score'], doc['metadata'])
+                for doc in sorted_docs[:k]
+            ]
+            
+        except Exception as e:
+            logger.error(f"❌ RRF 융합 실패: {e}")
+            # 융합 실패 시 FAISS 결과만 반환
+            return faiss_results[:k]
+    
+    def force_reload(self, domain: str) -> bool:
+        """
+        특정 도메인 강제 재로드
+        
+        Args:
+            domain: 재로드할 도메인
+            
+        Returns:
+            bool: 재로드 성공 여부
+        """
+        if domain not in self.metadata:
+            logger.error(f"❌ 알 수 없는 도메인: {domain}")
+            return False
+        
+        logger.info(f"🔄 {domain} 강제 재로드 실행...")
+        
+        # 기존 데이터 클리어
+        meta = self.metadata[domain]
+        meta.vectorstore = None
+        meta.bm25 = None
+        meta.documents = []
+        meta.file_hash = None
+        
+        # 재로드
+        return self._load_domain(domain)
+    
+    def force_reload_all(self) -> Dict[str, bool]:
+        """
+        모든 도메인 강제 재로드
+        
+        Returns:
+            Dict[str, bool]: 도메인별 재로드 결과
+        """
+        logger.info("🔄 전체 도메인 강제 재로드 시작...")
+        
+        results = {}
+        for domain in self.domains.keys():
+            results[domain] = self.force_reload(domain)
+        
+        success_count = sum(1 for success in results.values() if success)
+        logger.info(f"🔄 전체 재로드 완료: {success_count}/{len(results)} 성공")
         
         return results
     
-    def get_index(self, name: str) -> Optional[Tuple[faiss.Index, Dict[str, Any]]]:
+    def get_status(self) -> Dict[str, Dict[str, Any]]:
         """
-        Get FAISS index and metadata by name.
+        전체 인덱스 상태 정보 반환
         
-        Args:
-            name: Index name (e.g., 'general', 'publish', 'satisfaction')
-            
         Returns:
-            Tuple of (faiss_index, metadata) or None if not found
+            Dict[str, Dict]: 도메인별 상태 정보
         """
-        with self.access_lock:
-            if name not in self.indices:
-                # Try to load on-demand
-                if not self._load_index_on_demand(name):
-                    logger.warning(f"Index '{name}' not available")
-                    return None
-            
-            index_info = self.indices[name]
-            index_info.update_access()
-            
-            return index_info.faiss_index, index_info.metadata
-    
-    def get_available_indices(self) -> List[str]:
-        """Get list of currently loaded index names."""
-        with self.access_lock:
-            return list(self.indices.keys())
-    
-    def get_index_stats(self) -> Dict[str, Dict[str, Any]]:
-        """Get statistics for all loaded indices."""
-        with self.access_lock:
-            stats = {}
-            for name, info in self.indices.items():
-                stats[name] = {
-                    'loaded_at': info.loaded_at,
-                    'access_count': info.access_count,
-                    'last_accessed': info.last_accessed,
-                    'file_hash': info.file_hash[:8],  # Short hash
-                    'index_size': info.faiss_index.ntotal if info.faiss_index else 0,
-                    'metadata': {k: v for k, v in info.metadata.items() 
-                               if k not in ['embeddings', 'texts']}  # Exclude large data
-                }
-            return stats
-    
-    def reload_index(self, name: str, force: bool = False) -> bool:
-        """
-        Reload a specific index.
+        status = {}
         
-        Args:
-            name: Index name to reload
-            force: Force reload even if file hash hasn't changed
-            
+        for domain, meta in self.metadata.items():
+            status[domain] = {
+                'loaded': meta.vectorstore is not None,
+                'documents_count': len(meta.documents),
+                'has_bm25': meta.bm25 is not None,
+                'last_loaded': meta.last_loaded.isoformat() if meta.last_loaded else None,
+                'load_count': meta.load_count,
+                'error_count': meta.error_count,
+                'file_exists': meta.exists(),
+                'file_hash': meta.file_hash[:8] if meta.file_hash else None,
+                'needs_reload': meta.needs_reload()
+            }
+        
+        return status
+    
+    def health_check(self) -> Dict[str, Any]:
+        """
+        IndexManager 헬스체크
+        
         Returns:
-            True if reload was successful
+            Dict[str, Any]: 헬스체크 결과
         """
-        with self.access_lock:
-            logger.info(f"Reloading index: {name} (force={force})")
-            
-            if not force and name in self.indices:
-                # Check if file actually changed
-                current_hash = self._calculate_index_file_hash(name)
-                if current_hash and current_hash == self.indices[name].file_hash:
-                    logger.info(f"Index {name} file unchanged, skipping reload")
-                    return True
-            
-            # Remove old index if exists
-            if name in self.indices:
-                del self.indices[name]
-            
-            # Load fresh index
-            available_indices = self._discover_indices()
-            if name in available_indices:
-                return self._load_single_index(name, available_indices[name])
-            else:
-                logger.error(f"Index {name} not found in vectorstores directory")
-                return False
+        status = self.get_status()
+        
+        total_domains = len(status)
+        loaded_domains = sum(1 for s in status.values() if s['loaded'])
+        total_documents = sum(s['documents_count'] for s in status.values())
+        total_errors = sum(s['error_count'] for s in status.values())
+        
+        health = {
+            'overall_health': 'healthy' if loaded_domains == total_domains else 'degraded',
+            'loaded_domains': f"{loaded_domains}/{total_domains}",
+            'total_documents': total_documents,
+            'total_errors': total_errors,
+            'domains': status,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return health
     
-    def get_health_status(self) -> HealthCheck:
-        """Get health status of IndexManager."""
-        with self.access_lock:
-            try:
-                # Check overall status
-                total_indices = len(self._discover_indices())
-                loaded_indices = len(self.indices)
-                error_count = len(self.load_errors)
-                
-                if loaded_indices == 0:
-                    overall_status = ComponentStatus.UNHEALTHY
-                elif error_count > 0 or loaded_indices < total_indices:
-                    overall_status = ComponentStatus.DEGRADED
-                else:
-                    overall_status = ComponentStatus.HEALTHY
-                
-                # Component details
-                components = {}
-                for name in self._discover_indices():
-                    if name in self.indices:
-                        components[f"index_{name}"] = ComponentStatus.HEALTHY
-                    elif name in self.load_errors:
-                        components[f"index_{name}"] = ComponentStatus.UNHEALTHY
-                    else:
-                        components[f"index_{name}"] = ComponentStatus.UNKNOWN
-                
-                # File monitoring status
-                components["file_monitoring"] = (
-                    ComponentStatus.HEALTHY if self.observer and self.observer.is_alive()
-                    else ComponentStatus.DEGRADED
-                )
-                
-                return HealthCheck(
-                    overall_status=overall_status,
-                    components=components,
-                    details={
-                        "total_indices": total_indices,
-                        "loaded_indices": loaded_indices,
-                        "error_count": error_count,
-                        "load_errors": dict(self.load_errors),
-                        "monitoring_active": self.observer is not None and self.observer.is_alive()
-                    }
-                )
-            except Exception as e:
-                logger.error(f"Health check failed: {e}")
-                return HealthCheck(
-                    overall_status=ComponentStatus.UNKNOWN,
-                    components={},
-                    details={"error": str(e)}
-                )
-    
-    def shutdown(self):
-        """Clean shutdown of IndexManager."""
-        logger.info("Shutting down IndexManager...")
+    def cleanup(self):
+        """리소스 정리"""
+        logger.info("🧹 IndexManager 리소스 정리 시작...")
         
-        # Stop file monitoring
-        if self.observer:
-            self.observer.stop()
-            self.observer.join(timeout=5.0)
-            self.observer = None
+        with self._access_lock:
+            for meta in self.metadata.values():
+                meta.vectorstore = None
+                meta.bm25 = None
+                meta.documents = []
         
-        # Clear indices
-        with self.access_lock:
-            self.indices.clear()
-            self.loading_status.clear()
-            self.load_errors.clear()
-        
-        logger.info("IndexManager shutdown complete")
-    
-    def _discover_indices(self) -> Dict[str, Path]:
-        """Discover available vectorstore directories."""
-        available_indices = {}
-        
-        if not self.vectorstores_dir.exists():
-            logger.warning(f"Vectorstores directory not found: {self.vectorstores_dir}")
-            return available_indices
-        
-        for item in self.vectorstores_dir.iterdir():
-            if item.is_dir() and item.name.startswith('vectorstore_'):
-                index_name = item.name.replace('vectorstore_', '')
-                
-                # Check for required files
-                faiss_file = item / f"{index_name}_index.faiss"
-                pkl_file = item / f"{index_name}_index.pkl"
-                
-                if faiss_file.exists() and pkl_file.exists():
-                    available_indices[index_name] = item
-                else:
-                    logger.warning(
-                        f"Index {index_name} missing required files: "
-                        f"faiss_exists={faiss_file.exists()}, pkl_exists={pkl_file.exists()}"
-                    )
-        
-        return available_indices
-    
-    def _load_single_index(self, name: str, index_dir: Path) -> bool:
-        """Load a single index from directory."""
-        try:
-            logger.debug(f"Loading index: {name} from {index_dir}")
-            
-            # Set loading status
-            self.loading_status[name] = True
-            
-            # File paths
-            faiss_file = index_dir / f"{name}_index.faiss"
-            pkl_file = index_dir / f"{name}_index.pkl"
-            
-            # Calculate file hash for change detection
-            file_hash = self._calculate_file_hash(faiss_file, pkl_file)
-            
-            # Load FAISS index
-            if not faiss_file.exists():
-                raise FileNotFoundError(f"FAISS file not found: {faiss_file}")
-            
-            faiss_index = faiss.read_index(str(faiss_file))
-            logger.debug(f"Loaded FAISS index with {faiss_index.ntotal} vectors")
-            
-            # Load metadata
-            if not pkl_file.exists():
-                raise FileNotFoundError(f"Metadata file not found: {pkl_file}")
-            
-            with open(pkl_file, 'rb') as f:
-                metadata = pickle.load(f)
-            
-            logger.debug(f"Loaded metadata with {len(metadata.get('texts', []))} texts")
-            
-            # Store index info
-            with self.access_lock:
-                self.indices[name] = IndexInfo(
-                    name=name,
-                    faiss_index=faiss_index,
-                    metadata=metadata,
-                    file_hash=file_hash,
-                    loaded_at=time.time()
-                )
-                
-                # Clear any previous errors
-                if name in self.load_errors:
-                    del self.load_errors[name]
-            
-            logger.info(f"Successfully loaded index: {name}")
-            return True
-            
-        except Exception as e:
-            error_msg = f"Failed to load index {name}: {str(e)}"
-            logger.error(error_msg)
-            
-            with self.access_lock:
-                self.load_errors[name] = error_msg
-                if name in self.indices:
-                    del self.indices[name]
-            
-            return False
-        finally:
-            self.loading_status[name] = False
-    
-    def _load_index_on_demand(self, name: str) -> bool:
-        """Load an index on-demand if not already loaded."""
-        if name in self.loading_status and self.loading_status[name]:
-            # Already loading, wait a bit
-            time.sleep(0.1)
-            return name in self.indices
-        
-        available_indices = self._discover_indices()
-        if name in available_indices:
-            return self._load_single_index(name, available_indices[name])
-        else:
-            logger.error(f"Index {name} not found for on-demand loading")
-            return False
-    
-    def _calculate_file_hash(self, *files: Path) -> str:
-        """Calculate combined hash of multiple files."""
-        hasher = hashlib.md5()
-        
-        for file_path in files:
-            if file_path.exists():
-                # Include file modification time and size
-                stat = file_path.stat()
-                hasher.update(f"{file_path}:{stat.st_mtime}:{stat.st_size}".encode())
-        
-        return hasher.hexdigest()
-    
-    def _calculate_index_file_hash(self, name: str) -> Optional[str]:
-        """Calculate hash for specific index files."""
-        available_indices = self._discover_indices()
-        if name not in available_indices:
-            return None
-        
-        index_dir = available_indices[name]
-        faiss_file = index_dir / f"{name}_index.faiss"
-        pkl_file = index_dir / f"{name}_index.pkl"
-        
-        return self._calculate_file_hash(faiss_file, pkl_file)
-    
-    def _start_file_monitoring(self):
-        """Start file system monitoring for hot-swap."""
-        try:
-            if not self.vectorstores_dir.exists():
-                logger.warning("Cannot start file monitoring: vectorstores directory not found")
-                return
-            
-            self.file_handler = VectorStoreFileHandler(self)
-            self.observer = Observer()
-            self.observer.schedule(
-                self.file_handler,
-                str(self.vectorstores_dir),
-                recursive=True
-            )
-            self.observer.start()
-            
-            logger.info("File monitoring started for hot-swap capability")
-            
-        except Exception as e:
-            logger.error(f"Failed to start file monitoring: {e}")
-    
-    def _reload_index_if_changed(self, name: str):
-        """Reload index if file has changed (called by file monitor)."""
-        try:
-            current_hash = self._calculate_index_file_hash(name)
-            if not current_hash:
-                return
-            
-            with self.access_lock:
-                if name in self.indices and current_hash != self.indices[name].file_hash:
-                    logger.info(f"File change detected for index {name}, reloading...")
-                    self.reload_index(name, force=True)
-                elif name not in self.indices:
-                    logger.info(f"New index detected: {name}, loading...")
-                    self._load_index_on_demand(name)
-        
-        except Exception as e:
-            logger.error(f"Failed to check/reload index {name}: {e}")
+        logger.info("✅ IndexManager 리소스 정리 완료")
 
 
-# Global instance
-_index_manager: Optional[IndexManager] = None
-
+# ================================================================
+# 3. 전역 접근 함수들
+# ================================================================
 
 def get_index_manager() -> IndexManager:
-    """Get the global IndexManager instance."""
-    global _index_manager
-    if _index_manager is None:
-        _index_manager = IndexManager()
-    return _index_manager
+    """전역 IndexManager 인스턴스 반환"""
+    return IndexManager()
 
 
-def initialize_index_manager(max_workers: int = 3) -> Dict[str, bool]:
-    """Initialize and preload IndexManager."""
+def preload_all_indexes() -> Dict[str, bool]:
+    """모든 인덱스 사전 로드 (앱 초기화용)"""
     manager = get_index_manager()
-    return manager.preload_all_indices(max_workers=max_workers)
+    return manager.preload_all()
 
 
-def shutdown_index_manager():
-    """Shutdown the global IndexManager."""
-    global _index_manager
-    if _index_manager:
-        _index_manager.shutdown()
-        _index_manager = None
+def get_vectorstore(domain: str) -> Optional[FAISS]:
+    """도메인별 벡터스토어 반환 (핸들러용)"""
+    manager = get_index_manager()
+    return manager.get_vectorstore(domain)
+
+
+def hybrid_search(domain: str, query: str, k: int = 10) -> List[Tuple[str, float, Dict[str, Any]]]:
+    """도메인별 하이브리드 검색 (핸들러용)"""
+    manager = get_index_manager()
+    return manager.hybrid_search(domain, query, k)
+
+
+def index_health_check() -> Dict[str, Any]:
+    """인덱스 상태 확인 (모니터링용)"""
+    manager = get_index_manager()
+    return manager.health_check()
+
+
+# ================================================================
+# 4. 개발/테스트용 함수들
+# ================================================================
+
+def test_index_manager():
+    """IndexManager 기능 테스트"""
+    logger.info("🧪 IndexManager 테스트 시작...")
+    
+    try:
+        # 1. 인스턴스 생성 테스트
+        manager = get_index_manager()
+        logger.info("✅ 싱글톤 인스턴스 생성 성공")
+        
+        # 2. 헬스체크
+        health = manager.health_check()
+        logger.info(f"📊 초기 상태: {health['overall_health']}")
+        
+        # 3. 사전 로드 테스트
+        results = manager.preload_all()
+        success_count = sum(1 for success in results.values() if success)
+        logger.info(f"📚 사전 로드 결과: {success_count}/{len(results)} 성공")
+        
+        # 4. 검색 테스트
+        test_queries = {
+            "satisfaction": "교육과정 만족도",
+            "general": "학칙 규정",
+            "menu": "식단 메뉴",
+            "cyber": "사이버교육",
+            "publish": "교육계획",
+            "notice": "공지사항"
+        }
+        
+        for domain, query in test_queries.items():
+            try:
+                results = manager.hybrid_search(domain, query, k=3)
+                logger.info(f"🔍 {domain} 검색 테스트: {len(results)}건 반환")
+            except Exception as e:
+                logger.error(f"❌ {domain} 검색 실패: {e}")
+        
+        # 5. 최종 헬스체크
+        final_health = manager.health_check()
+        logger.info(f"🏁 최종 상태: {final_health['overall_health']}")
+        logger.info(f"📄 총 문서 수: {final_health['total_documents']}")
+        
+        return final_health
+        
+    except Exception as e:
+        logger.error(f"❌ IndexManager 테스트 실패: {e}")
+        return None
+
+
+if __name__ == "__main__":
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # 간단한 테스트 실행
+    test_index_manager()
