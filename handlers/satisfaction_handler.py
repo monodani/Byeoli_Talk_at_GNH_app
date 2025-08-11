@@ -137,7 +137,7 @@ class satisfaction_handler(base_handler):
         
         # 점수 패턴 정규화 (예: "4.5점" → "4.50점")
         score_pattern = r'(\d+\.\d{1})점'
-        standardized = re.sub(score_pattern, r'\10점', answer)
+        standardized = re.sub(score_pattern, r'\g<1>0점', answer)
         
         return standardized
     
