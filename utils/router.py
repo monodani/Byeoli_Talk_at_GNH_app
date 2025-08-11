@@ -238,7 +238,6 @@ class Router:
             for handler_type in HandlerType:
                 if handler_type == HandlerType.FALLBACK:
                     continue  # fallback은 최후 수단이므로 제외
-                
                 score = RoutingRules.calculate_rule_score(request.text, handler_type)
                 rule_scores[handler_type] = score
             
@@ -349,7 +348,7 @@ notice: 0.X
             # LLM 호출 (타임아웃 12초)
             response = await asyncio.wait_for(
                 asyncio.to_thread(self.llm_light.invoke, [{"role": "user", "content": prompt}]),
-                timeout=12.0
+                timeout=2.0
             )
             
             # 응답 파싱
