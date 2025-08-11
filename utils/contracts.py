@@ -196,7 +196,7 @@ class HandlerResponse(BaseModel):
     @property
     def is_reliable(self) -> bool:
         """신뢰할만한 응답인지 여부"""
-        return self.confidence >= 0.65 and len(self.citations) >= 1
+        return self.confidence >= 0.65 and len(self.citations) >= 1 and 2000 <= self.elapsed_ms <= 15000
     
     class Config:
         json_encoders = {
@@ -287,8 +287,8 @@ class PerformanceMetrics(BaseModel):
     
     @property
     def within_timebox(self) -> bool:
-        """1.5초 타임박스 준수 여부"""
-        return self.total_time_ms <= 1500
+        """15.0초 타임박스 준수 여부"""
+        return 2000 <= self.total_time_ms <= 15000
 
 
 # ================================================================

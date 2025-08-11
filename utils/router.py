@@ -5,11 +5,11 @@
 하이브리드 라우팅 & 병렬 실행 엔진:
 - 1차: 키워드 규칙 기반 후보 필터링
 - 2차: 경량 LLM으로 Top-2 핸들러 선정
-- 3차: 선정된 핸들러 병렬 실행 (1.5s 타임박스)
+- 3차: 선정된 핸들러 병렬 실행 (15.0s 타임박스)
 - 4차: 컨피던스 기반 최종 응답 선택
 
 핵심 특징:
-- 총 1.5s 타임박스 (후보선정 0.4s + 병렬실행 1.1s)
+- 총 15.0s 타임박스 (후보선정 3.0s + 병렬실행 12.0s)
 - 규칙+LLM 하이브리드 후보 선정
 - asyncio 병렬 실행으로 성능 최적화
 - 실패 시 fallback 핸들러 보장
@@ -142,7 +142,7 @@ class Router:
     주요 기능:
     - 규칙 + LLM 하이브리드 후보 선정
     - Top-2 핸들러 병렬 실행
-    - 1.5s 타임박스 엄격 준수
+    - 15.0s 타임박스 현실적 조정
     - 컨피던스 기반 최종 응답 선택
     """
     
@@ -155,15 +155,15 @@ class Router:
             model="gpt-4o-mini",
             temperature=0.0,
             max_tokens=100,
-            timeout=5.0
+            timeout=12.0
         )
         
-        # 성능 설정
-        self.TIMEBOX_TOTAL = 1.5  # 총 타임박스 (초)
-        self.TIMEBOX_SELECTION = 0.4  # 후보 선정 시간
-        self.TIMEBOX_EXECUTION = 1.1  # 핸들러 실행 시간
+        # 성능 설정 - 현실적 타임박스로 조정
+        self.TIMEBOX_TOTAL = 15.0      # 타임박스 총 시간
+        self.TIMEBOX_SELECTION = 3.0  # 핸들러 후보 선정시간
+        self.TIMEBOX_EXECUTION = 12.0  # 핸들러 처리시간
         
-        logger.info("🚀 Router 초기화 완료 (타임박스: 1.5s)")
+        logger.info("🚀 Router 초기화 완료 (타임박스: 15.0s)")  
     
     async def route(self, request: QueryRequest) -> HandlerResponse:
         """
@@ -181,14 +181,14 @@ class Router:
         try:
             logger.info(f"🎯 라우팅 시작 [{trace_id}]: {request.text[:50]}...")
             
-            # 1단계: Top-2 핸들러 선정 (0.4s)
+            # 1단계: Top-2 핸들러 선정 (3.0s)
             selected_handlers = await self._select_top_handlers(request)
             selection_time = time.time() - start_time
             
             if selection_time > self.TIMEBOX_SELECTION:
                 logger.warning(f"⚠️ 핸들러 선정 시간 초과: {selection_time:.3f}s > {self.TIMEBOX_SELECTION}s")
             
-            # 2단계: 선정된 핸들러 병렬 실행 (1.1s)
+            # 2단계: 선정된 핸들러 병렬 실행 (12.0s)  
             execution_start = time.time()
             final_response = await self._execute_handlers_parallel(
                 request, selected_handlers, self.TIMEBOX_EXECUTION
@@ -346,10 +346,10 @@ notice: 0.X
 
 (해당되지 않는 핸들러는 생략하세요)"""
 
-            # LLM 호출 (타임아웃 3초)
+            # LLM 호출 (타임아웃 12초)
             response = await asyncio.wait_for(
                 asyncio.to_thread(self.llm_light.invoke, [{"role": "user", "content": prompt}]),
-                timeout=3.0
+                timeout=12.0
             )
             
             # 응답 파싱
@@ -575,11 +575,11 @@ async def test_routing_performance():
     """라우팅 성능 테스트"""
     test_queries = [
         "2024년 교육과정 만족도 1위는?",
-        "학칙에서 징계 관련 규정 알려줘",
-        "오늘 구내식당 메뉴 뭐야?",
-        "사이버교육 일정 확인하고 싶어",
-        "2025년 교육계획 요약해줘",
-        "새로운 공지사항 있어?"
+        "학칙에서 미수료 기준 관련 규정 알려줘",
+        "오늘 구내식당 점심 메뉴 뭐야?",
+        "사이버교육 중 프로그래밍 관련 교육과정 리스트 뽑아줘.",
+        "2025년 교육계획 요약 정리해줘",
+        "가장 최근 공지사항은 뭐야?"
     ]
     
     results = []
