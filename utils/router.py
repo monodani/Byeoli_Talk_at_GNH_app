@@ -155,7 +155,7 @@ class Router:
             model="gpt-4o-mini",
             temperature=0.0,
             max_tokens=100,
-            timeout=12.0
+            timeout=2.0
         )
         
         # 성능 설정 - 현실적 타임박스로 조정
