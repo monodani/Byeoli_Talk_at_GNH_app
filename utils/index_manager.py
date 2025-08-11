@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - index_manager.py (BM25 로드 및 import 수정)
+경상남도인재개발원 RAG 챗봇 - index_manager.py (완전 수정 버전)
 
 IndexManager 싱글톤: 모든 벡터스토어 중앙 관리
 - 앱 기동 시 모든 FAISS 인덱스 사전 로드
@@ -11,11 +11,10 @@ IndexManager 싱글톤: 모든 벡터스토어 중앙 관리
 
 핵심 수정사항:
 ✅ TextChunk import 누락 오류 수정
-✅ 경로 오류 수정: VectorStoreMetadata 초기화 시 절대 경로 사용
+✅ 경로 오류 수정: data_ingestion.py와 동일한 경로 매핑 사용
 ✅ preload_all_indexes 함수 추가 (test_integration.py 호환)
-✅ traceback import 추가
-✅ embeddings 초기화 누락 수정
 ✅ health_check() 메서드 추가
+✅ 파일명 패턴 통일 (domain_index.faiss)
 """
 
 import hashlib
@@ -45,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 # ================================================================
-# 프로젝트 루트 경로 설정 (기존과 동일)
+# 프로젝트 루트 경로 설정
 # ================================================================
 try:
     ROOT_DIR = Path(__file__).parent.parent.absolute()
@@ -53,7 +52,7 @@ except NameError:
     ROOT_DIR = Path(".").absolute()
 
 # ================================================================
-# 1. 벡터스토어 메타데이터 클래스 (BM25 파일 추가)
+# 1. 벡터스토어 메타데이터 클래스
 # ================================================================
 
 @dataclass
@@ -62,7 +61,7 @@ class VectorStoreMetadata:
     벡터스토어 메타데이터 및 상태 관리 (BM25 파일 지원)
     """
     domain: str
-    vectorstore_dir: Path
+    vectorstore_base_dir: Path
     
     # post_init에서 설정되므로 init=False로 설정
     vectorstore_path: Path = field(init=False)
@@ -81,17 +80,36 @@ class VectorStoreMetadata:
     last_hash: Optional[str] = None
     
     def __post_init__(self):
-        self.vectorstore_path = ROOT_DIR / self.vectorstores_dir / f"vectorstore_{self.domain}"
+        # data_ingestion.py와 동일한 경로 매핑 사용
+        self.vectorstore_path = self._get_vectorstore_path()
         self.faiss_path = self.vectorstore_path / f"{self.domain}_index.faiss"
         self.pkl_path = self.vectorstore_path / f"{self.domain}_index.pkl"
         self.bm25_path = self.vectorstore_path / f"{self.domain}_index.bm25"
         self.embeddings = OpenAIEmbeddings()
+    
+    def _get_vectorstore_path(self) -> Path:
+        """data_ingestion.py와 완전히 동일한 경로 반환"""
+        vectorstore_base = ROOT_DIR / "vectorstores"
+        
+        path_mapping = {
+            "satisfaction": vectorstore_base / "vectorstore_unified_satisfaction",
+            "general": vectorstore_base / "vectorstore_general",
+            "menu": vectorstore_base / "vectorstore_menu", 
+            "cyber": vectorstore_base / "vectorstore_cyber",
+            "publish": vectorstore_base / "vectorstore_unified_publish",
+            "notice": vectorstore_base / "vectorstore_notice"
+        }
+        
+        return path_mapping.get(self.domain, vectorstore_base / f"vectorstore_{self.domain}")
 
     def exists(self) -> bool:
         """
         필요한 인덱스 파일들이 모두 존재하는지 확인
         """
-        return self.faiss_path.exists() and self.pkl_path.exists() and self.bm25_path.exists()
+        exists = self.faiss_path.exists() and self.pkl_path.exists() and self.bm25_path.exists()
+        if not exists:
+            logger.debug(f"파일 존재 여부 - FAISS: {self.faiss_path.exists()}, PKL: {self.pkl_path.exists()}, BM25: {self.bm25_path.exists()}")
+        return exists
 
     @property
     def needs_reload(self) -> bool:
@@ -142,13 +160,12 @@ class IndexManager:
             return
             
         self.metadata: Dict[str, VectorStoreMetadata] = {}
-        
         self.embeddings = OpenAIEmbeddings()
         
         for domain in config.HANDLERS:
             self.metadata[domain] = VectorStoreMetadata(
-                domain,
-                Path(config.VECTORSTORE_DIR)
+                domain=domain,
+                vectorstore_base_dir=Path(config.VECTORSTORE_DIR)
             )
         
         logger.info(f"🚀 IndexManager 싱글톤 초기화 완료: {len(self.metadata)}개 도메인")
@@ -162,6 +179,9 @@ class IndexManager:
         meta = self.metadata[domain]
         
         logger.info(f"🔄 도메인 {domain} 로드 시작...")
+        logger.debug(f"  - FAISS 경로: {meta.faiss_path}")
+        logger.debug(f"  - PKL 경로: {meta.pkl_path}")
+        logger.debug(f"  - BM25 경로: {meta.bm25_path}")
         
         try:
             if not meta.exists():
@@ -171,21 +191,31 @@ class IndexManager:
                 return
             
             start_time = time.time()
+            
+            # FAISS 인덱스 로드 - index_name 파라미터 추가
             meta.vectorstore = FAISS.load_local(
                 str(meta.vectorstore_path),
                 meta.embeddings,
+                index_name=f"{domain}_index",  # 파일명 패턴 명시
                 allow_dangerous_deserialization=True
             )
             
+            # 문서 메타데이터 로드
             with open(meta.pkl_path, "rb") as f:
                 meta.documents = pickle.load(f)
             
+            # BM25 인덱스 로드
             if meta.bm25_path.exists():
                 with open(meta.bm25_path, 'rb') as f:
-                    meta.bm25 = pickle.load(f)
+                    bm25_data = pickle.load(f)
+                    if isinstance(bm25_data, tuple):
+                        meta.bm25, _ = bm25_data  # (bm25_index, metadata) 튜플인 경우
+                    else:
+                        meta.bm25 = bm25_data
                 logger.info(f"✅ 도메인 {domain} BM25 인덱스 로드 완료.")
             else:
-                logger.warning(f"⚠️ 도메인 {domain} BM25 인덱스 파일이 없습니다. BM25 검색을 사용할 수 없습니다.")
+                logger.warning(f"⚠️ 도메인 {domain} BM25 인덱스 파일이 없습니다.")
+                meta.bm25 = None
             
             meta.last_loaded = datetime.now()
             meta.load_count += 1
@@ -258,14 +288,36 @@ class IndexManager:
         
         return status
 
-    def health_check(self) -> Dict[str, Dict]:
+    def health_check(self) -> Dict[str, Any]:
         """
-        test_integration.py 호환성을 위해 추가된 메서드
-        모든 도메인의 인덱스 상태를 점검하고 반환합니다.
+        test_integration.py 호환성을 위한 health_check 메서드
+        전체 시스템 상태를 종합적으로 평가
+        """
+        status = self.get_status()
         
-        get_status() 메서드를 활용하여 현재 로드 상태를 반환합니다.
-        """
-        return self.get_status()
+        # 상태 통계 계산
+        total_domains = len(status)
+        loaded_domains = sum(1 for s in status.values() if s['loaded'])
+        total_documents = sum(s['documents_count'] for s in status.values())
+        domains_with_bm25 = sum(1 for s in status.values() if s['has_bm25'])
+        
+        # 전체 건강도 평가
+        health_score = 0
+        if total_domains > 0:
+            health_score += (loaded_domains / total_domains) * 50  # 50점: 로드 상태
+            health_score += (domains_with_bm25 / total_domains) * 30  # 30점: BM25 인덱스
+            health_score += min(total_documents / 1000, 1) * 20  # 20점: 문서 수 (1000개 이상이면 만점)
+        
+        overall_health = "healthy" if health_score >= 70 else "degraded" if health_score >= 40 else "critical"
+        
+        return {
+            "overall_health": overall_health,
+            "health_score": round(health_score, 1),
+            "loaded_domains": f"{loaded_domains}/{total_domains}",
+            "total_documents": total_documents,
+            "domains_with_bm25": f"{domains_with_bm25}/{total_domains}",
+            "domain_status": status
+        }
 
 # ================================================================
 # 3. 싱글톤 인스턴스 관리
@@ -332,74 +384,21 @@ def preload_all_indexes() -> Dict[str, bool]:
 
 def index_health_check() -> Dict[str, Any]:
     """
-    인덱스 상태 건강 검진
+    인덱스 상태 건강 검진 (독립 함수 버전)
     
     Returns:
         Dict[str, Any]: 상태 정보 및 건강도 지표
     """
     try:
         index_manager = get_index_manager()
-        status = index_manager.get_status()
-        
-        total_domains = len(status)
-        loaded_domains = sum(1 for s in status.values() if s['loaded'])
-        total_documents = sum(s['documents_count'] for s in status.values())
-        total_errors = sum(s['error_count'] for s in status.values())
-        
-        health_score = int((loaded_domains / total_domains) * 100) if total_domains > 0 else 0
-        
-        if health_score >= 90:
-            health_status = "healthy"
-        elif health_score >= 70:
-            health_status = "degraded"
-        else:
-            health_status = "critical"
-        
-        checks = {
-            "all_domains_loaded": loaded_domains == total_domains,
-            "no_recent_errors": total_errors == 0,
-            "sufficient_documents": total_documents > 100,
-            "embeddings_available": hasattr(index_manager, 'metadata')
-        }
-        
-        result = {
-            "timestamp": datetime.now().isoformat(),
-            "health_status": health_status,
-            "health_score": health_score,
-            "summary": {
-                "total_domains": total_domains,
-                "loaded_domains": loaded_domains,
-                "total_documents": total_documents,
-                "total_errors": total_errors
-            },
-            "checks": checks,
-            "domain_details": status,
-            "recommendations": []
-        }
-        
-        if health_score < 100:
-            failed_domains = [domain for domain, s in status.items() if not s['loaded']]
-            if failed_domains:
-                result["recommendations"].append(f"다음 도메인 재구축 필요: {', '.join(failed_domains)}")
-        
-        if total_errors > 0:
-            result["recommendations"].append("에러가 발생한 도메인의 로그를 확인해주세요")
-        
-        if total_documents < 100:
-            result["recommendations"].append("문서 수가 부족합니다. 데이터 소스를 확인해주세요")
-        
-        logger.info(f"🏥 건강 검진 완료 - 상태: {health_status}, 점수: {health_score}/100")
-        
-        return result
+        return index_manager.health_check()
         
     except Exception as e:
         logger.error(f"❌ 건강 검진 실패: {e}")
         return {
-            "timestamp": datetime.now().isoformat(),
-            "health_status": "error",
+            "overall_health": "error",
             "health_score": 0,
-            "error": str(e),
-            "recommendations": ["시스템 재시작이 필요할 수 있습니다"]
+            "error": str(e)
         }
 
 
@@ -407,4 +406,4 @@ def index_health_check() -> Dict[str, Any]:
 # 5. 모듈 로드 완료 로그
 # ================================================================
 
-logger.info("✅ index_manager.py 모듈 로드 완료 (preload_all_indexes 포함)")
+logger.info("✅ index_manager.py 모듈 로드 완료 (완전 수정 버전)")
