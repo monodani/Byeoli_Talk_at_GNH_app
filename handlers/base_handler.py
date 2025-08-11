@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - base_handler 기반 클래스 (IndexManager 통합)
+경상남도인재개발원 RAG 챗봇 - base_handler 기반 클래스 (IndexManager 통합 + BM25 오류 수정)
 
 모든 핸들러의 공통 기능을 제공하는 추상 베이스 클래스:
 - IndexManager 싱글톤을 활용한 중앙집중식 벡터스토어 관리
@@ -10,11 +10,11 @@
 - 스트리밍 응답 (50토큰 단위)
 - 표준 인터페이스 (QueryRequest → HandlerResponse)
 
-주요 개선사항:
-✅ IndexManager 싱글톤을 통한 벡터스토어 접근
-✅ FAISS 매개변수 오타 수정 (allow_dangerous_deserialization)
-✅ 중복 로드 방지 및 성능 최적화
-✅ 핫스왑 지원 (파일 변경 시 자동 업데이트)
+주요 수정사항:
+✅ BM25 검색 슬라이싱 오류 수정
+✅ Citation snippet 길이 제한 개선
+✅ 토큰화 로직 개선
+✅ 에러 처리 강화
 """
 
 import logging
@@ -29,7 +29,7 @@ from datetime import datetime
 from utils.config import config
 from utils.contracts import QueryRequest, HandlerResponse, Citation
 from utils.textifier import TextChunk
-from utils.index_manager import get_index_manager  # ✅ IndexManager import 추가
+from utils.index_manager import get_index_manager
 
 # 외부 라이브러리
 import numpy as np
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 class base_handler(ABC):
     """
-    모든 핸들러의 기반 클래스 (IndexManager 통합)
+    모든 핸들러의 기반 클래스 (IndexManager 통합 + 오류 수정)
     
     주요 기능:
     - IndexManager를 통한 중앙집중식 벡터스토어 관리
@@ -67,10 +67,10 @@ class base_handler(ABC):
         self.index_name = index_name
         self.confidence_threshold = confidence_threshold
         
-        # ✅ IndexManager 싱글톤 참조
+        # IndexManager 싱글톤 참조
         self.index_manager = get_index_manager()
         
-        # 임베딩 모델 초기화 (IndexManager에서 공유되지만 핸들러별로도 유지)
+        # 임베딩 모델 초기화
         self.embeddings = OpenAIEmbeddings()
         
         # LLM 초기화
@@ -80,16 +80,11 @@ class base_handler(ABC):
             streaming=True
         )
         
-        # ✅ 벡터스토어는 IndexManager에서 관리 (로컬 참조 제거)
-        # self.vectorstore = None  # 제거됨
-        # self.bm25 = None         # 제거됨 
-        # self.documents = None    # 제거됨
-        
         logger.info(f"✨ {domain.upper()} Handler 초기화 완료 (θ={confidence_threshold}, IndexManager 통합)")
     
     def _get_vectorstore(self) -> Optional[FAISS]:
         """
-        ✅ IndexManager를 통해 벡터스토어 획득 (중앙집중식)
+        IndexManager를 통해 벡터스토어 획득 (중앙집중식)
         
         Returns:
             Optional[FAISS]: 벡터스토어 인스턴스 또는 None
@@ -106,7 +101,7 @@ class base_handler(ABC):
     
     def _get_bm25(self) -> Optional[BM25Okapi]:
         """
-        ✅ IndexManager를 통해 BM25 인덱스 획득
+        IndexManager를 통해 BM25 인덱스 획득
         
         Returns:
             Optional[BM25Okapi]: BM25 인덱스 또는 None
@@ -121,12 +116,13 @@ class base_handler(ABC):
             logger.error(f"❌ {self.domain} BM25 인덱스 획득 실패: {e}")
             return None
     
-    def _get_documents(self) -> List[str]:
+    def _get_documents(self) -> List[TextChunk]:
         """
-        ✅ IndexManager를 통해 문서 목록 획득
+        ✅ 수정: TextChunk 타입으로 반환
+        IndexManager를 통해 문서 목록 획득
         
         Returns:
-            List[str]: 문서 텍스트 목록
+            List[TextChunk]: 문서 청크 목록
         """
         try:
             documents = self.index_manager.get_documents(self.domain)
@@ -135,9 +131,26 @@ class base_handler(ABC):
             logger.error(f"❌ {self.domain} 문서 목록 획득 실패: {e}")
             return []
     
+    def _tokenize_text(self, text: str) -> List[str]:
+        """
+        ✅ 추가: 개선된 토큰화 함수
+        
+        Args:
+            text: 토큰화할 텍스트
+            
+        Returns:
+            List[str]: 토큰 리스트
+        """
+        # 한국어와 영어를 고려한 토큰화
+        # 공백, 구두점 기준으로 분리
+        import re
+        tokens = re.findall(r'\b\w+\b', text.lower())
+        return tokens
+    
     def hybrid_search(self, query: str, k: int = 10) -> List[Tuple[str, float, Dict[str, Any]]]:
         """
-        ✅ 하이브리드 검색 (FAISS + BM25 + RRF) - IndexManager 활용
+        ✅ 수정: BM25 검색 오류 수정
+        하이브리드 검색 (FAISS + BM25 + RRF) - IndexManager 활용
         
         Args:
             query: 검색 쿼리
@@ -149,7 +162,7 @@ class base_handler(ABC):
         # IndexManager에서 벡터스토어 및 BM25 획득
         vectorstore = self._get_vectorstore()
         bm25 = self._get_bm25()
-        documents = self._get_documents()
+        documents = self._get_documents()  # TextChunk 리스트
         
         if not vectorstore:
             logger.warning(f"⚠️ {self.domain} 벡터스토어 없음, 빈 결과 반환")
@@ -163,20 +176,40 @@ class base_handler(ABC):
             # 2. BM25 검색 (사용 가능한 경우)
             bm25_docs = []
             if bm25 and documents:
-                tokenized_query = query.split()
-                bm25_scores = bm25.get_scores(tokenized_query)
+                # ✅ 개선된 토큰화
+                tokenized_query = self._tokenize_text(query)
                 
-                # 상위 k개 BM25 결과 선택
-                top_indices = np.argsort(bm25_scores)[-k:][::-1]
-                for idx in top_indices:
-                    if idx < len(documents):
-                        # 메타데이터 찾기
-                        doc_id = str(idx)
-                        metadata = {}
-                        if doc_id in vectorstore.docstore._dict:
-                            metadata = vectorstore.docstore._dict[doc_id].metadata
+                # ✅ 수정: documents가 TextChunk 리스트임을 고려
+                doc_texts = []
+                for doc in documents:
+                    if isinstance(doc, TextChunk):
+                        doc_texts.append(doc.text)
+                    elif isinstance(doc, str):
+                        doc_texts.append(doc)
+                    else:
+                        doc_texts.append(str(doc))
+                
+                # BM25 스코어 계산
+                if doc_texts:
+                    try:
+                        bm25_scores = bm25.get_scores(tokenized_query)
                         
-                        bm25_docs.append((documents[idx], float(bm25_scores[idx]), metadata))
+                        # 상위 k개 선택
+                        if len(bm25_scores) > 0:
+                            # ✅ 수정: numpy 배열 인덱싱 안전하게 처리
+                            top_k = min(k, len(bm25_scores))
+                            top_indices = np.argsort(bm25_scores)[-top_k:][::-1]
+                            
+                            for idx in top_indices:
+                                if 0 <= idx < len(documents):
+                                    doc = documents[idx]
+                                    text = doc.text if isinstance(doc, TextChunk) else str(doc)
+                                    metadata = doc.metadata if isinstance(doc, TextChunk) else {}
+                                    score = float(bm25_scores[idx])
+                                    
+                                    bm25_docs.append((text, score, metadata))
+                    except Exception as e:
+                        logger.error(f"❌ {self.domain} BM25 스코어 계산 실패: {e}")
             
             # 3. RRF (Reciprocal Rank Fusion) 적용
             combined_results = self._apply_rrf(faiss_docs, bm25_docs, k=k)
@@ -186,6 +219,17 @@ class base_handler(ABC):
             
         except Exception as e:
             logger.error(f"❌ {self.domain} 하이브리드 검색 실패: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            
+            # 에러 시 FAISS 결과만이라도 반환
+            try:
+                if vectorstore:
+                    faiss_results = vectorstore.similarity_search_with_score(query, k=k)
+                    return [(doc.page_content, score, doc.metadata) for doc, score in faiss_results]
+            except:
+                pass
+            
             return []
     
     def _apply_rrf(self, faiss_docs: List[Tuple[str, float, Dict]], 
@@ -244,7 +288,7 @@ class base_handler(ABC):
     def calculate_confidence(self, search_results: List[Tuple[str, float, Dict[str, Any]]], 
                            query: str) -> float:
         """
-        컨피던스 점수 계산 (단순화된 버전)
+        ✅ 개선: 문서가 적을 때도 적절한 컨피던스 계산
         
         Args:
             search_results: 검색 결과
@@ -256,28 +300,46 @@ class base_handler(ABC):
         if not search_results:
             return 0.0
         
-        # 상위 3개 결과의 평균 점수
-        top_scores = [score for _, score, _ in search_results[:3]]
-        avg_score = sum(top_scores) / len(top_scores) if top_scores else 0.0
+        # 검색 결과 수에 따른 기본 점수 조정
+        result_count = len(search_results)
+        if result_count == 1:
+            base_confidence = 0.3  # 결과가 1개면 기본 0.3
+        elif result_count == 2:
+            base_confidence = 0.4  # 결과가 2개면 기본 0.4
+        else:
+            base_confidence = 0.5  # 3개 이상이면 기본 0.5
         
-        # 문서 다양성 보너스 (서로 다른 소스에서 온 경우)
+        # 상위 결과의 평균 점수 (정규화)
+        top_scores = [score for _, score, _ in search_results[:min(3, result_count)]]
+        if top_scores:
+            # 점수 정규화 (0-1 범위로)
+            max_score = max(top_scores)
+            if max_score > 0:
+                normalized_scores = [s / max_score for s in top_scores]
+                avg_score = sum(normalized_scores) / len(normalized_scores)
+                score_boost = avg_score * 0.3  # 최대 0.3 추가
+            else:
+                score_boost = 0.0
+        else:
+            score_boost = 0.0
+        
+        # 문서 다양성 보너스
         sources = set()
-        for _, _, metadata in search_results[:3]:
+        for _, _, metadata in search_results[:min(3, result_count)]:
             source = metadata.get('source', 'unknown')
             sources.add(source)
+        diversity_bonus = min(len(sources) * 0.05, 0.15)  # 최대 0.15 보너스
         
-        diversity_bonus = min(len(sources) * 0.1, 0.3)  # 최대 0.3 보너스
-        
-        # 쿼리 유형 매칭 보너스 (도메인별 키워드 포함 시)
+        # 쿼리 유형 매칭 보너스
         query_lower = query.lower()
         domain_keywords = self._get_domain_keywords()
         keyword_matches = sum(1 for kw in domain_keywords if kw in query_lower)
-        keyword_bonus = min(keyword_matches * 0.05, 0.2)  # 최대 0.2 보너스
+        keyword_bonus = min(keyword_matches * 0.05, 0.15)  # 최대 0.15 보너스
         
         # 최종 컨피던스 계산
-        confidence = min(avg_score + diversity_bonus + keyword_bonus, 1.0)
+        confidence = min(base_confidence + score_boost + diversity_bonus + keyword_bonus, 1.0)
         
-        logger.debug(f"🎯 {self.domain} 컨피던스: {confidence:.3f} (기본: {avg_score:.3f}, 다양성: {diversity_bonus:.3f}, 키워드: {keyword_bonus:.3f})")
+        logger.debug(f"🎯 {self.domain} 컨피던스: {confidence:.3f} (기본: {base_confidence:.3f}, 점수: {score_boost:.3f}, 다양성: {diversity_bonus:.3f}, 키워드: {keyword_bonus:.3f})")
         return confidence
     
     def _get_domain_keywords(self) -> List[str]:
@@ -295,7 +357,7 @@ class base_handler(ABC):
     def extract_citations(self, search_results: List[Tuple[str, float, Dict[str, Any]]], 
                          max_citations: int = 3) -> List[Citation]:
         """
-        검색 결과에서 Citation 추출
+        ✅ 개선: Citation snippet 길이 제한 처리
         
         Args:
             search_results: 검색 결과
@@ -307,25 +369,49 @@ class base_handler(ABC):
         citations = []
         
         for i, (text, score, metadata) in enumerate(search_results[:max_citations]):
-            # 소스 ID 생성
-            source = metadata.get('source', 'unknown')
-            page = metadata.get('page', '')
-            source_id = f"{source}#{page}" if page else source
-            
-            # 스니펫 생성 (200자 제한)
-            snippet = text[:200] + "..." if len(text) > 200 else text
-            
-            citation = Citation(
-                source_id=source_id,
-                snippet=snippet
-            )
-            citations.append(citation)
+            try:
+                # 소스 ID 생성
+                source = metadata.get('source', 'unknown')
+                page = metadata.get('page', '')
+                source_id = f"{source}#{page}" if page else source
+                
+                # ✅ 개선된 스니펫 생성 (200자 제한, 단어 단위로 자르기)
+                if len(text) <= 200:
+                    snippet = text
+                else:
+                    # 200자 근처에서 단어 경계 찾기
+                    cutoff = 197  # "..." 3자 고려
+                    # 공백이나 구두점에서 자르기
+                    while cutoff > 0 and cutoff < len(text):
+                        if text[cutoff] in ' \n\t.,;!?':
+                            break
+                        cutoff -= 1
+                    
+                    if cutoff == 0:
+                        snippet = text[:197] + "..."
+                    else:
+                        snippet = text[:cutoff].strip() + "..."
+                
+                citation = Citation(
+                    source_id=source_id,
+                    snippet=snippet
+                )
+                citations.append(citation)
+                
+            except Exception as e:
+                logger.error(f"Citation 생성 실패: {e}")
+                # Citation 없이 계속 진행
+                continue
+        
+        # Citation이 없으면 경고
+        if not citations:
+            logger.warning("Citation이 없습니다. 소스 인용이 필요합니다.")
         
         return citations
     
     def handle(self, request: QueryRequest) -> HandlerResponse:
         """
-        ✅ 메인 핸들링 함수 (IndexManager 통합)
+        메인 핸들링 함수 (IndexManager 통합)
         
         Args:
             request: 사용자 요청
@@ -346,9 +432,11 @@ class base_handler(ABC):
             # 2. 컨피던스 계산
             confidence = self.calculate_confidence(search_results, request.text)
             
-            # 3. 임계값 확인
+            # 3. 임계값 확인 및 재질문 처리
+            reask = None
             if confidence < self.confidence_threshold:
                 logger.info(f"📉 {self.domain} 컨피던스 부족: {confidence:.3f} < {self.confidence_threshold}")
+                
                 # k 확장 재검색 시도
                 extended_results = self.hybrid_search(request.text, k=12)
                 if extended_results:
@@ -357,6 +445,10 @@ class base_handler(ABC):
                         search_results = extended_results
                         confidence = extended_confidence
                         logger.info(f"📈 {self.domain} 확장 검색으로 컨피던스 회복: {confidence:.3f}")
+                    else:
+                        # 여전히 낮으면 재질문 생성
+                        reask = f"더 구체적인 정보를 제공해주시면 정확한 답변을 드릴 수 있습니다. 예를 들어, 특정 과정명이나 기간을 알려주세요."
+                        logger.warning(f"⚠️ 낮은 컨피던스로 재질문 유도 (confidence={confidence:.3f})")
             
             # 4. 컨텍스트 포맷팅
             context = self.format_context(search_results)
@@ -383,21 +475,27 @@ class base_handler(ABC):
             # 7. 응답 생성
             elapsed_ms = int((time.time() - start_time) * 1000)
             
+            logger.info(f"✅ {self.domain} 핸들러 완료: confidence={confidence:.3f}")
+            
             return HandlerResponse(
                 answer=answer,
                 citations=citations,
                 confidence=confidence,
                 handler_id=self.domain,
                 elapsed_ms=elapsed_ms,
+                reask=reask,
                 diagnostics={
                     'search_results_count': len(search_results),
                     'threshold_met': confidence >= self.confidence_threshold,
-                    'indexmanager_integration': True  # ✅ 통합 완료 표시
+                    'indexmanager_integration': True
                 }
             )
             
         except Exception as e:
             logger.error(f"❌ {self.domain} 핸들링 실패: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            
             elapsed_ms = int((time.time() - start_time) * 1000)
             
             return HandlerResponse(
@@ -413,9 +511,15 @@ class base_handler(ABC):
         """검색 결과 없음 응답 생성"""
         elapsed_ms = int((time.time() - start_time) * 1000)
         
+        # Citation이 없을 때 기본 Citation 생성
+        empty_citation = Citation(
+            source_id="no_results",
+            snippet="검색 결과가 없습니다."
+        )
+        
         return HandlerResponse(
-            answer=f"죄송합니다. '{request.text}' 관련 {self.domain} 정보를 찾을 수 없습니다.",
-            citations=[],
+            answer=f"죄송합니다. '{request.text}' 관련 {self.domain} 정보를 찾을 수 없습니다. 다른 키워드로 검색해 보시거나, 더 구체적인 정보를 제공해주세요.",
+            citations=[empty_citation],  # 빈 Citation 대신 기본 Citation 제공
             confidence=0.0,
             handler_id=self.domain,
             elapsed_ms=elapsed_ms,
@@ -465,4 +569,4 @@ class StreamingHandlerMixin:
 # 모듈 로드 완료 로그
 # ================================================================
 
-logger.info("✅ base_handler.py 모듈 로드 완료 - IndexManager 통합 버전")
+logger.info("✅ base_handler.py 모듈 로드 완료 - BM25 오류 수정 버전")
