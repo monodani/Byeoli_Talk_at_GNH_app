@@ -3,6 +3,8 @@
 # 경상남도인재개발원 RAG 챗봇의 모든 의존성 라이브러리
 # ================================================================
 
+rank-bm25
+
 # --- 🔧 Core Framework & Configuration ---
 python-dotenv==1.0.1          # .env 파일 로드
 pydantic==2.8.2               # 데이터 검증 및 타입 체크 (contracts.py)
@@ -69,7 +71,7 @@ bcrypt==4.1.3                 # 패스워드 해싱
 # --- 📦 Serialization & Data Format ---
 orjson==3.10.3                # 고성능 JSON 처리 (로그, 캐시)
 msgpack==1.0.8                # 바이너리 직렬화
-pickle-secure==0.9.3          # 안전한 피클링
+pickle-secure          # 안전한 피클링
 
 # --- 🌏 Internationalization ---
 langdetect==1.0.9             # 언어 감지
@@ -113,7 +115,7 @@ scipy==1.13.1                 # 과학 계산 (통계 분석)
 statsmodels==0.14.2           # 통계 모델링
 
 # --- 🔍 Debugging & Profiling ---
-line-profiler==4.1.1          # 라인별 성능 프로파일링
+line-profiler    		# 라인별 성능 프로파일링
 py-spy==0.3.14                # 런타임 프로파일러
 ipdb==0.13.13                 # 향상된 디버거
 
