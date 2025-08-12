@@ -362,7 +362,7 @@ def get_byeoli_image(response: HandlerResponse = None, answer: str = "") -> str:
         
         # 업무 관련
         if any(word in answer for word in ['업무', '작업', '처리', '진행', '개발', '분석']):
-            return BYEOLI_IMAGES["hardworking"]
+            return BYEOLI_IMAGES["typing"]
         
         # 발표/설명
         if any(word in answer for word in ['발표', '설명', '소개', '계획', '보고', '평가']):
@@ -382,7 +382,7 @@ def get_byeoli_image(response: HandlerResponse = None, answer: str = "") -> str:
         
         # 식사 관련
         if any(word in answer for word in ['식단', '메뉴', '식사', '밥', '급식']):
-            return BYEOLI_IMAGES["hungry"]
+            return BYEOLI_IMAGES["excited"]
         
         # 인사/마무리
         if any(word in answer for word in ['안녕', '좋은하루', '수고', '마무리', '끝']):
@@ -558,7 +558,7 @@ def render_header():
         st.markdown("""
         <div class="main-header fade-in">
             <h1>🌟 벼리톡@경상남도인재개발원</h1>
-            <p>경상남도인재개발원 AI 어시스턴트 - 교육에 대한 모든 궁금증, 벼리에게 물어보세요!</p>
+            <p>경상남도인재개발원 AI 어시스턴트 - 경상남도인재개발원에 대한 모든 궁금증, 벼리에게 물어보세요!</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -664,7 +664,7 @@ def render_chat_history():
             <img src="{welcome_image}" class="byeoli-avatar" onerror="this.style.display='none'">
             <strong>🌟 벼리:</strong><br>
             안녕하세요! 경상남도인재개발원 AI 어시스턴트 벼리입니다! 🌟<br><br>
-            교육과정, 만족도 조사, 식단표, 공지사항 등 궁금한 것이 있으시면 언제든 물어보세요!<br>
+            교육과정 및 강의실 정보, 학칙, 구내식당 식단표, 공지사항 등 궁금한 것이 있으시면 언제든 물어보세요!<br>
             어떤 도움이 필요하신가요?
         </div>
         """, unsafe_allow_html=True)
@@ -909,13 +909,15 @@ async def _handle_fallback_mode(user_input: str, start_time: float) -> Dict[str,
             elif category == "감사":
                 response_text = "천만에요! 언제든 도움이 필요하시면 말씀해 주세요! 😊"
             elif category == "식단":
-                response_text = "구내식당 관련 문의는 총무담당(055-254-2096)으로 연락해 주세요."
+                response_text = "구내식당 관련 문의는 인재개발지원과 총무담당(055-254-2096)으로 연락해 주세요."
             elif category == "연락처":
-                response_text = "경상남도인재개발원 대표번호: 055-254-2000입니다."
+                response_text = "경상남도인재개발원 대표번호: 055-254-2051입니다."
             elif category == "교육":
-                response_text = "교육 관련 문의는 교육기획담당(055-254-2052)으로 연락해 주세요."
-            elif category == "만족도":
-                response_text = "만족도 조사 관련은 평가분석담당(055-254-2022)으로 문의해 주세요."
+                response_text = "교육과정 운영 관련 문의는 인재양성과 교육기획담당(055-254-2051)으로 연락해 주세요."
+            elif category == "평가 및 만족도":
+                response_text = "평가 및 만족도 조사 관련은 인재개발지원과 평가분석담당(055-254-2021)으로 문의해 주세요."
+            elif category == "보건소·숙소동 운영, 차량지원 및 시설 관리":
+                response_text = "보건소 및 숙소동, 차량지원 및 시설 관리 등 관련은 인재개발지원과 총무담당(055-254-2011)으로 문의해 주세요."                
             break
     
     # 가상 응답 객체 생성
@@ -963,7 +965,7 @@ async def _handle_processing_error(user_input: str, error_msg: str, start_time: 
     
     if IS_PRODUCTION:
         # 운영 환경: 친절한 에러 메시지
-        friendly_msg = "죄송합니다. 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주시거나, 담당부서(055-254-2011)로 문의해 주세요."
+        friendly_msg = "죄송합니다. 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주시거나, 인재개발지원과(055-254-2011) 또는 인재양성과(055-254-2051)로 문의해 주세요."
     else:
         # 개발 환경: 상세 에러 정보
         friendly_msg = f"개발 환경 오류: {error_msg}"
