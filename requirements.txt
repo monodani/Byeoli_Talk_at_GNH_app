@@ -1,87 +1,78 @@
 # ================================================================
-# BYEOLI_TALK_AT_GNHRD_app - requirements.txt (최종 충돌 해결)
-# 벼리톡@경상남도인재개발원(경상남도인재개발원 RAG 챗봇)
+# 최종 안정화 버전 (의존성 충돌 완전 해결)
 # ================================================================
 
-# --- 🔧 Core Framework & Configuration ---
-python-dotenv==1.0.1          # .env 파일 로드
-structlog==24.4.0             # 구조화된 로깅
+# 🌐 웹 프레임워크
+streamlit
 
-# --- 📊 Data Processing & Analysis ---
-pandas==2.2.2                 # CSV 데이터 처리 (만족도 조사, 연락처)
-numpy==1.26.4                 # 수치 연산 (벡터 연산, 통계)
+# 📊 데이터 처리  
+pandas
+numpy
 
-# --- 🔍 Search & Retrieval ---
-rank-bm25==0.2.2              # BM25 키워드 검색
-faiss-cpu==1.8.0.post1        # 벡터 유사도 검색 (CPU 버전)
-scikit-learn==1.5.1           # MMR 및 클러스터링
+# 🤖 AI (완전 호환 버전)
+openai==1.25.0
+pydantic==2.4.0
 
-# --- 📄 File Processing & Text Extraction ---
-pypdf==5.1.0                  # PDF 텍스트 추출 (2025plan.pdf, 2024pyeongga.pdf)
-PyPDF2==3.0.1                 # PDF 처리 보조 라이브러리  
-Pillow==10.4.0                # 이미지 처리 (식단표 이미지)
-pytesseract==0.3.13           # OCR 텍스트 인식
-tiktoken==0.7.0               # OpenAI 토큰 계산 (청킹 최적화)
-chardet==5.2.0                # 인코딩 감지 (CSV 파일)
+# 🔍 검색
+faiss-cpu
+rank-bm25
 
-# --- 🤖 AI & Machine Learning (충돌 해결된 조합) ---
-# 핵심: 패키지 버전을 더 넓은 범위로 설정하여 pip이 최적 조합을 찾도록 함
-pydantic>=2.0.0,<3.0.0        # 🔧 Pydantic v2 호환 (넓은 범위)
-openai>=1.30.0,<1.35.0        # 🔧 안정적인 OpenAI 범위
-langchain>=0.2.0,<0.3.0       # 🔧 LangChain 안정 범위
-langchain-openai>=0.1.10,<0.2.0  # 🔧 호환 가능한 범위
-langchain-community>=0.2.0,<0.3.0  # 🔧 커뮤니티 호환 범위
+# 📄 파일 처리
+pypdf
+pytesseract
+Pillow
 
-# --- 🌐 Web Framework & API ---
-streamlit==1.38.0             # 웹 UI 프레임워크  
-requests==2.32.3              # HTTP 요청 (OpenAI API 호출)
+# 🔧 유틸리티
+python-dotenv
+requests
+rich
 
-# --- ✅ Validation & Schema ---
-jsonschema==4.21.1            # JSON 스키마 검증 (schemas/*.json)
+# 🧠 LangChain (최소 버전)
+langchain-core
+langchain-openai==0.1.10
 
-# --- ⚡ Performance & Async ---
-tenacity==8.3.0               # 재시도 로직 (API 호출 안정성)
-cachetools==5.4.0             # 메모리 캐시
-
-# --- 🔄 File Monitoring & Hotswap ---
-watchdog==4.0.0               # 파일 변경 감지 (핫스왑)
-
-# --- 📦 Serialization & Data Format ---
-orjson==3.10.3                # 고성능 JSON 처리 (로그, 캐시)
-
-# --- 📝 Text Processing & NLP ---
-rapidfuzz==3.9.6              # 빠른 문자열 매칭 (엔티티 추출)
-
-# --- 🎨 Rich CLI & UI ---
-rich>=13.0.0,<15.0.0          # 🔧 콘솔 출력 향상 (넓은 범위)
-
-# --- 🔧 System & Platform ---
-python-multipart==0.0.9       # 멀티파트 폼 데이터
-typing-extensions>=4.0.0      # 🔧 타입 힌트 확장 (넓은 범위)
-python-dateutil==2.9.0        # 날짜 처리
+# 📊 기타 필수
+scikit-learn
+tiktoken
+chardet
 
 # ================================================================
-# 🚨 의존성 충돌 해결 전략 (2025-08-13)
+# 사용법:
+# 1. pip install -r requirements_minimal.txt
+# 2. 점진적 추가: pip install langchain langchain-community
+# ================================================================# ================================================================
+# 최소 필수 패키지 (의존성 충돌 시 임시 사용)
 # ================================================================
-# 1. 주요 패키지들을 범위(>=, <)로 설정하여 pip이 최적 조합을 찾도록 함
-# 2. 너무 엄격한 버전 고정 제거
-# 3. 핵심 기능에 영향 없는 패키지들은 넓은 범위 허용
-# 4. Streamlit Cloud 배포 시 자동으로 최적화된 버전 조합 선택
+
+# 🌐 웹 프레임워크
+streamlit
+
+# 📊 데이터 처리
+pandas
+numpy
+
+# 🤖 AI (최소 버전)
+openai>=1.30.0
+pydantic>=2.0.0
+
+# 🔍 검색
+faiss-cpu
+rank-bm25
+
+# 📄 파일 처리
+pypdf
+pytesseract
+Pillow
+
+# 🔧 유틸리티
+python-dotenv
+requests
+rich
 
 # ================================================================
-# 대안 설치 방법 (충돌 지속 시)
-# ================================================================
-# 1. 단계별 설치:
-#    pip install streamlit pandas numpy
-#    pip install pydantic>=2.0.0,<3.0.0
-#    pip install openai>=1.30.0,<1.35.0
-#    pip install langchain>=0.2.0,<0.3.0
-#    pip install langchain-openai langchain-community
-#    pip install -r requirements.txt --no-deps
-#
-# 2. 가상환경 재생성:
-#    python -m venv venv_new
-#    source venv_new/bin/activate  # Linux/Mac
-#    venv_new\Scripts\activate     # Windows
-#    pip install -r requirements.txt
+# 사용법:
+# pip install -r requirements_minimal.txt
+# 
+# 이후 점진적으로 추가:
+# pip install langchain langchain-openai langchain-community
 # ================================================================
