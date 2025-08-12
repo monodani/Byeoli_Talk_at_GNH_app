@@ -233,7 +233,7 @@ class IndexManager:
 
     def _load_domain(self, domain: str):
         """
-        단일 도메인의 벡터스토어를 로드 (에러 처리 강화)
+        단일 도메인의 벡터스토어를 로드 (Pydantic v1/v2 호환성 수정)
         """
         meta = self.metadata[domain]
         
@@ -265,27 +265,89 @@ class IndexManager:
                     allow_dangerous_deserialization=True
                 )
             
-            # 문서 메타데이터 로드
-            with open(meta.pkl_path, "rb") as f:
-                meta.documents = pickle.load(f)
-            
-
-            if meta.vectorstore:
-                # FAISS의 docstore에서 문서 목록을 직접 가져옵니다.
-                # TextChunk 객체를 사용했다면 value가 해당 객체입니다.
-                meta.documents = list(meta.vectorstore.docstore._dict.values())
-            else:
-                meta.documents = []
+            # ✅ 문서 메타데이터 로드 (Pydantic v1/v2 호환성 처리)
+            try:
+                with open(meta.pkl_path, "rb") as f:
+                    loaded_data = pickle.load(f)
+                    
+                    # Pydantic v1 → v2 변환 처리
+                    if isinstance(loaded_data, list):
+                        meta.documents = []
+                        for item in loaded_data:
+                            try:
+                                if hasattr(item, '__fields_set__'):
+                                    # Pydantic v1 객체 감지 → v2로 변환
+                                    logger.debug(f"🔄 Pydantic v1 객체를 v2로 변환: {type(item)}")
+                                    
+                                    # 기본 딕셔너리로 변환 후 재생성
+                                    if hasattr(item, 'dict'):
+                                        item_dict = item.dict()
+                                    elif hasattr(item, 'model_dump'):
+                                        item_dict = item.model_dump()
+                                    else:
+                                        # 직접 속성 추출
+                                        item_dict = {
+                                            'text': getattr(item, 'text', ''),
+                                            'metadata': getattr(item, 'metadata', {}),
+                                            'source_id': getattr(item, 'source_id', ''),
+                                            'chunk_index': getattr(item, 'chunk_index', 0)
+                                        }
+                                    
+                                    # 새로운 TextChunk 생성
+                                    new_chunk = TextChunk(**item_dict)
+                                    meta.documents.append(new_chunk)
+                                else:
+                                    # 이미 Pydantic v2 또는 호환 객체
+                                    meta.documents.append(item)
+                            except Exception as item_error:
+                                logger.warning(f"⚠️ 개별 문서 변환 실패: {item_error}, 건너뜀")
+                                continue
+                    else:
+                        meta.documents = loaded_data
+                        
+                logger.info(f"✅ 도메인 {domain} 문서 메타데이터 로드 완료: {len(meta.documents)}개")
+                
+            except Exception as pkl_error:
+                logger.error(f"❌ 도메인 {domain} PKL 로드 실패: {pkl_error}")
+                
+                # ✅ Fallback: FAISS docstore에서 직접 로드
+                if meta.vectorstore:
+                    logger.info(f"🔄 {domain} FAISS docstore에서 문서 복구 시도")
+                    try:
+                        # FAISS의 docstore에서 문서 목록을 직접 가져옵니다.
+                        raw_documents = list(meta.vectorstore.docstore._dict.values())
+                        meta.documents = []
+                        
+                        for i, doc in enumerate(raw_documents):
+                            # LangChain Document → TextChunk 변환
+                            chunk = TextChunk(
+                                text=doc.page_content,
+                                metadata=doc.metadata,
+                                source_id=doc.metadata.get('source_id', f'{domain}_{i}'),
+                                chunk_index=i
+                            )
+                            meta.documents.append(chunk)
+                        
+                        logger.info(f"✅ {domain} FAISS에서 {len(meta.documents)}개 문서 복구 완료")
+                    except Exception as fallback_error:
+                        logger.error(f"❌ {domain} FAISS 문서 복구도 실패: {fallback_error}")
+                        meta.documents = []
+                else:
+                    meta.documents = []
             
             # BM25 인덱스 로드
             if meta.bm25_path.exists():
-                with open(meta.bm25_path, 'rb') as f:
-                    bm25_data = pickle.load(f)
-                    if isinstance(bm25_data, tuple):
-                        meta.bm25, _ = bm25_data
-                    else:
-                        meta.bm25 = bm25_data
-                logger.info(f"✅ 도메인 {domain} BM25 인덱스 로드 완료.")
+                try:
+                    with open(meta.bm25_path, 'rb') as f:
+                        bm25_data = pickle.load(f)
+                        if isinstance(bm25_data, tuple):
+                            meta.bm25, _ = bm25_data
+                        else:
+                            meta.bm25 = bm25_data
+                    logger.info(f"✅ 도메인 {domain} BM25 인덱스 로드 완료.")
+                except Exception as bm25_error:
+                    logger.warning(f"⚠️ 도메인 {domain} BM25 로드 실패: {bm25_error}")
+                    meta.bm25 = None
             else:
                 logger.warning(f"⚠️ 도메인 {domain} BM25 인덱스 파일이 없습니다.")
                 meta.bm25 = None
@@ -314,6 +376,7 @@ class IndexManager:
             # Graceful Degradation: 부분 로드라도 시도
             meta.vectorstore = None
             meta.bm25 = None
+
 
     def load_all_domains(self):
         """모든 도메인 로드"""
