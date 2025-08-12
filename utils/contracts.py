@@ -427,6 +427,104 @@ class PerformanceMetrics(BaseModel):
             }
         }
 
+class ErrorResponse(BaseModel):
+    """에러 응답"""
+    model_config = ConfigDict(extra='allow')
+    
+    error_type: str
+    error_message: str
+    domain: Optional[str] = None
+    query: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.now)
+    traceback: Optional[str] = None
+    suggestions: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    @classmethod
+    def from_exception(
+        cls,
+        exception: Exception,
+        domain: Optional[str] = None,
+        query: Optional[str] = None,
+        include_traceback: bool = False
+    ) -> "ErrorResponse":
+        """예외로부터 에러 응답 생성"""
+        import traceback as tb
+        
+        return cls(
+            error_type=type(exception).__name__,
+            error_message=str(exception),
+            domain=domain,
+            query=query,
+            traceback=tb.format_exc() if include_traceback else None,
+            suggestions=cls._get_suggestions(exception)
+        )
+    
+    @staticmethod
+    def _get_suggestions(exception: Exception) -> List[str]:
+        """예외 타입에 따른 제안사항 생성"""
+        suggestions = []
+        error_type = type(exception).__name__
+        
+        if "Index" in error_type or "Vector" in error_type:
+            suggestions.append("인덱스를 재구축해보세요: make build-index")
+        if "API" in error_type or "OpenAI" in error_type:
+            suggestions.append("API 키를 확인해주세요")
+            suggestions.append("API 할당량을 확인해주세요")
+        if "Timeout" in error_type:
+            suggestions.append("네트워크 연결을 확인해주세요")
+            suggestions.append("요청을 다시 시도해주세요")
+        if "Memory" in error_type:
+            suggestions.append("시스템 메모리를 확인해주세요")
+            suggestions.append("캐시를 정리해보세요: make clean-cache")
+        
+        if not suggestions:
+            suggestions.append("문제가 지속되면 관리자에게 문의하세요")
+        
+        return suggestions
+    
+    def to_user_message(self) -> str:
+        """사용자 친화적 메시지 생성"""
+        message = f"죄송합니다. 요청을 처리하는 중 문제가 발생했습니다.\n\n"
+        
+        if self.domain:
+            message += f"**도메인**: {self.domain}\n"
+        
+        message += f"**오류**: {self.error_message}\n\n"
+        
+        if self.suggestions:
+            message += "**제안사항**:\n"
+            for suggestion in self.suggestions:
+                message += f"• {suggestion}\n"
+        
+        return message
+
+class StreamingResponse(BaseModel):
+    """스트리밍 응답"""
+    model_config = ConfigDict(extra='allow')
+    
+    chunk_id: int
+    content: str
+    is_final: bool = False
+    domain: Optional[str] = None
+    confidence: Optional[float] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    def to_sse_format(self) -> str:
+        """Server-Sent Events 형식으로 변환"""
+        import json
+        data = {
+            "id": self.chunk_id,
+            "content": self.content,
+            "final": self.is_final
+        }
+        if self.domain:
+            data["domain"] = self.domain
+        if self.confidence is not None:
+            data["confidence"] = self.confidence
+        
+        return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
 class CacheEntry(BaseModel):
     """캐시 엔트리"""
     model_config = ConfigDict(extra='allow')
