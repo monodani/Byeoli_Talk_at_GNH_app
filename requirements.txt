@@ -1,59 +1,35 @@
-# ================================================================
-# 벼리톡@경상남도인재개발원 - requirements.txt (충돌 완전 해결)
-# ================================================================
+# Core dependencies
+streamlit==1.39.0
+python-dotenv==1.0.1
+pydantic==2.9.2  # v2 명시적 지정
+pydantic-core==2.23.4
 
-# 🌐 웹 프레임워크
-streamlit
+# LangChain & AI
+langchain==0.3.7
+langchain-community==0.3.5
+langchain-openai==0.2.8
+openai==1.54.3
+faiss-cpu==1.9.0
+rank_bm25==0.2.2
+tiktoken==0.8.0
 
-# 📊 데이터 처리  
-pandas
-numpy
+# Data processing
+pandas==2.2.3
+numpy==1.26.4
+chardet==5.2.0
+PyPDF2==3.0.1
 
-# 🤖 AI (단일 버전 명시)
-openai>=1.32.0,<2.0.0
-pydantic>=2.4.0,<3.0.0
+# OCR (optional - comment out if not using menu OCR)
+# pytesseract==0.3.13
+# Pillow==11.0.0
 
-# 🔍 검색
-faiss-cpu
-rank-bm25
+# Utilities
+colorama==0.4.6
+tenacity==9.0.0
+tqdm==4.67.0
 
-# 📄 파일 처리
-pypdf
-pytesseract
-Pillow
+# Type hints
+typing-extensions==4.12.2
 
-# 🔧 유틸리티
-python-dotenv
-requests
-rich
-
-# 🧠 LangChain (호환 버전)
-langchain-core
-langchain-openai==0.1.14
-langchain-community
-
-# 📊 기타 필수
-scikit-learn
-tiktoken
-chardet
-
-# 📝 추가 필수 패키지
-structlog
-jsonschema
-tenacity
-cachetools
-watchdog
-orjson
-rapidfuzz
-python-multipart
-typing-extensions
-python-dateutil
-
-# ================================================================
-# 🚨 중요 수정사항:
-# 1. openai 버전 통일 (1.30.5로 고정)
-# 2. pydantic 범위 지정으로 호환성 확보
-# 3. 필수 패키지 모두 포함
-# ================================================================
-
-
+# For schema validation
+jsonschema==4.23.0
