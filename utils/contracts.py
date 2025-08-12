@@ -226,6 +226,61 @@ class IndexMetadata(BaseModel):
             return datetime.fromisoformat(v)
         return v
 
+class RouterResponse(BaseModel):
+    """라우터 응답 (라우팅 결정 + 핸들러 실행 결과)"""
+    model_config = ConfigDict(extra='allow')
+    
+    query: str
+    decision: RouterDecision
+    responses: List[HandlerResponse] = Field(default_factory=list)
+    final_answer: str = ""
+    final_confidence: float = 0.0
+    total_processing_time: float = 0.0
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    @classmethod
+    def from_routing_result(
+        cls, 
+        query: str,
+        decision: RouterDecision,
+        responses: List[HandlerResponse],
+        processing_time: float = 0.0
+    ) -> "RouterResponse":
+        """라우팅 결과로부터 응답 생성"""
+        # 최적 응답 선택
+        valid_responses = [r for r in responses if r.success]
+        
+        if valid_responses:
+            best = max(valid_responses, key=lambda x: x.confidence)
+            final_answer = best.answer
+            final_confidence = best.confidence
+        else:
+            # 모든 응답이 실패한 경우
+            final_answer = "죄송합니다. 요청을 처리하는 중 오류가 발생했습니다."
+            final_confidence = 0.0
+        
+        return cls(
+            query=query,
+            decision=decision,
+            responses=responses,
+            final_answer=final_answer,
+            final_confidence=final_confidence,
+            total_processing_time=processing_time
+        )
+    
+    def to_streamlit_message(self) -> Dict[str, Any]:
+        """Streamlit 메시지 형식으로 변환"""
+        return {
+            "role": "assistant",
+            "content": self.final_answer,
+            "metadata": {
+                "domain": self.decision.primary_domain,
+                "confidence": self.final_confidence,
+                "processing_time": self.total_processing_time,
+                "citations": sum(len(r.citations) for r in self.responses)
+            }
+        }
+
 class RoutingResult(BaseModel):
     """라우팅 결과"""
     model_config = ConfigDict(extra='allow')
