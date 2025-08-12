@@ -26,7 +26,7 @@ tiktoken==0.7.0               # OpenAI 토큰 계산 (청킹 최적화)
 chardet==5.2.0                # 인코딩 감지 (CSV 파일)
 
 # --- 🤖 AI & Machine Learning (최종 호환성 수정) ---
-openai==1.30.5                # 더 안정적인 버전으로 다운그레이드
+openai==1.32.0                # 더 안정적인 버전으로 다운그레이드
 langchain==0.2.12             # LangChain 프레임워크
 langchain-openai==0.1.17      # 더 안정적인 호환 버전
 langchain-community==0.2.11   # LangChain 커뮤니티 확장
@@ -88,3 +88,4 @@ python-dateutil==2.9.0        # 날짜 처리
 # 3. Streamlit 실행: streamlit run app.py
 # 4. 호환성 테스트: python -c "from langchain_community.embeddings import OpenAIEmbeddings; print('✅ OpenAI 호환성 확인')"
 # ================================================================
+
