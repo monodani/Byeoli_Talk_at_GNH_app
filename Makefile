@@ -1,5 +1,5 @@
 # ================================================================
-# BYEOLI_TALK_AT_GNH_app - Makefile(최적화)
+# BYEOLI_TALK_AT_GNHRD_app - Makefile(최적화)
 # 벼리톡@경상남도인재개발원(경상남도인재개발원 RAG 챗봇)
 # ================================================================
 
@@ -22,7 +22,7 @@ NC=\033[0m # No Color
 # ================================================================
 
 help:
-	@echo "$(GREEN)BYEOLI_TALK_AT_GNH_app Makefile$(NC)"
+	@echo "$(GREEN)BYEOLI_TALK_AT_GNHRD_app Makefile$(NC)"
 	@echo "=================================="
 	@echo ""
 	@echo "$(YELLOW)기본 명령어:$(NC)"
