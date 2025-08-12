@@ -364,6 +364,92 @@ class SearchResult(BaseModel):
             metadata=self.metadata
         )
 
+class PerformanceMetrics(BaseModel):
+    """성능 메트릭"""
+    model_config = ConfigDict(extra='allow')
+    
+    # 시간 메트릭 (초 단위)
+    total_time: float = 0.0
+    routing_time: float = 0.0
+    retrieval_time: float = 0.0
+    generation_time: float = 0.0
+    first_token_time: Optional[float] = None
+    
+    # 검색 메트릭
+    documents_retrieved: int = 0
+    documents_used: int = 0
+    avg_relevance_score: float = 0.0
+    
+    # 품질 메트릭
+    confidence_score: float = 0.0
+    domains_checked: List[str] = Field(default_factory=list)
+    cache_hit: bool = False
+    
+    # 리소스 메트릭
+    tokens_used: int = 0
+    memory_mb: Optional[float] = None
+    
+    # 타임스탬프
+    timestamp: datetime = Field(default_factory=datetime.now)
+    
+    def get_summary(self) -> str:
+        """요약 문자열 반환"""
+        return (
+            f"총 {self.total_time:.2f}초 | "
+            f"신뢰도 {self.confidence_score:.1%} | "
+            f"문서 {self.documents_used}/{self.documents_retrieved}개 | "
+            f"캐시 {'HIT' if self.cache_hit else 'MISS'}"
+        )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return {
+            "times": {
+                "total": round(self.total_time, 3),
+                "routing": round(self.routing_time, 3),
+                "retrieval": round(self.retrieval_time, 3),
+                "generation": round(self.generation_time, 3),
+                "first_token": round(self.first_token_time, 3) if self.first_token_time else None
+            },
+            "search": {
+                "retrieved": self.documents_retrieved,
+                "used": self.documents_used,
+                "avg_score": round(self.avg_relevance_score, 3)
+            },
+            "quality": {
+                "confidence": round(self.confidence_score, 3),
+                "domains": self.domains_checked,
+                "cache_hit": self.cache_hit
+            },
+            "resources": {
+                "tokens": self.tokens_used,
+                "memory_mb": round(self.memory_mb, 2) if self.memory_mb else None
+            }
+        }
+
+class CacheEntry(BaseModel):
+    """캐시 엔트리"""
+    model_config = ConfigDict(extra='allow')
+    
+    key: str
+    value: Any
+    created_at: datetime = Field(default_factory=datetime.now)
+    accessed_at: datetime = Field(default_factory=datetime.now)
+    access_count: int = 1
+    ttl_seconds: Optional[int] = 3600  # 기본 1시간
+    
+    def is_expired(self) -> bool:
+        """만료 여부 확인"""
+        if self.ttl_seconds is None:
+            return False
+        elapsed = (datetime.now() - self.created_at).total_seconds()
+        return elapsed > self.ttl_seconds
+    
+    def touch(self):
+        """접근 시간 업데이트"""
+        self.accessed_at = datetime.now()
+        self.access_count += 1
+
 class DomainConfig(BaseModel):
     """도메인 설정"""
     model_config = ConfigDict(extra='allow')
