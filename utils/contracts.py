@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - contracts.py (최종 수정)
+벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - contracts.py (Pydantic v2 완전 호환)
 
 시스템 전체의 인터페이스 계약을 정의하는 Pydantic 모델 모음
 - QueryRequest: 사용자 요청 표준화
@@ -9,7 +9,8 @@
 - Citation: 소스 인용 표준화
 - 모든 데이터 교환 시 타입 안전성 보장
 
-🚨 중요: TextChunk는 utils.textifier에서만 정의하고 여기서는 제거함
+🚨 중요: TextChunk는 utils.textifier에서만 정의하고 여기서는 제거함 (중복 해결)
+✅ Pydantic v2 완전 호환: @field_validator + model_config 방식 적용
 """
 
 import logging
@@ -125,57 +126,15 @@ class ConversationContext(BaseModel):
 
 
 # ================================================================
-# 3. 라우팅 관련 모델
-# ================================================================
-
-class HandlerCandidate(BaseModel):
-    """핸들러 후보 (라우팅 단계)"""
-    model_config = ConfigDict(extra='forbid')
-    
-    handler_id: HandlerType = Field(..., description="핸들러 ID")
-    rule_score: float = Field(default=0.0, ge=0.0, le=1.0, description="규칙 기반 점수")
-    llm_score: float = Field(default=0.0, ge=0.0, le=1.0, description="LLM 기반 점수")
-    combined_score: float = Field(default=0.0, ge=0.0, le=1.0, description="종합 점수")
-    reasoning: str = Field(default="", description="선정 근거")
-    
-    @field_validator('combined_score', mode='before')
-    @classmethod
-    def calculate_combined_score(cls, v, info):
-        """종합 점수 자동 계산 (rule:llm = 0.3:0.7)"""
-        if info.data:
-            rule_score = info.data.get('rule_score', 0.0)
-            llm_score = info.data.get('llm_score', 0.0)
-            return round(rule_score * 0.3 + llm_score * 0.7, 3)
-        return v
-
-
-class RouterResponse(BaseModel):
-    """라우터 응답 (Top-2 핸들러 선정 결과)"""
-    model_config = ConfigDict(extra='forbid')
-    
-    selected_handlers: List[HandlerCandidate] = Field(..., max_length=2, description="선정된 핸들러 (최대 2개)")
-    selection_time_ms: int = Field(..., ge=0, description="선정 소요 시간")
-    routing_strategy: str = Field(default="hybrid", description="사용된 라우팅 전략")
-    trace_id: str = Field(..., description="요청 추적 ID")
-    
-    @field_validator('selected_handlers')
-    @classmethod
-    def validate_handler_count(cls, v):
-        """핸들러 개수 검증"""
-        if len(v) == 0:
-            raise ValueError("최소 1개의 핸들러가 선정되어야 합니다.")
-        if len(v) > 2:
-            return v[:2]  # 상위 2개만 유지
-        return v
-
-
-# ================================================================
-# 4. 요청/응답 모델
+# 3. 요청/응답 모델
 # ================================================================
 
 class QueryRequest(BaseModel):
     """표준화된 사용자 요청"""
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(
+        extra='forbid',
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
     
     text: str = Field(..., min_length=1, max_length=2000, description="사용자 질문 텍스트")
     context: Optional[ConversationContext] = Field(default=None, description="대화 컨텍스트")
@@ -197,169 +156,178 @@ class QueryRequest(BaseModel):
 
 
 class Citation(BaseModel):
-    """소스 인용 정보"""
+    """소스 인용 정보 (2-3건 필수)"""
     model_config = ConfigDict(extra='forbid')
     
-    source_file: str = Field(..., description="소스 파일명")
-    source_id: str = Field(..., description="소스 고유 식별자")
-    relevance_score: float = Field(..., ge=0.0, le=1.0, description="관련성 점수")
-    context: str = Field(..., max_length=200, description="인용 맥락 (200자 제한)")
+    source_id: str = Field(..., description="소스 식별자 (예: publish/2025plan.pdf#p12)")
+    snippet: Optional[str] = Field(default=None, max_length=200, description="관련 텍스트 발췌 (200자 제한)")
+    relevance_score: float = Field(default=0.0, ge=0.0, le=1.0, description="관련성 점수")
+    page_number: Optional[int] = Field(default=None, description="페이지 번호 (PDF용)")
+    section_title: Optional[str] = Field(default=None, description="섹션 제목")
     
-    def __str__(self) -> str:
-        return f"[{self.source_file}] {self.context[:50]}..."
+    @field_validator('snippet')
+    @classmethod
+    def validate_snippet_length(cls, v):
+        """snippet 길이 제한"""
+        if v and len(v) > 200:
+            return v[:197] + "..."
+        return v
 
 
 class HandlerResponse(BaseModel):
-    """핸들러 응답 표준화"""
-    model_config = ConfigDict(extra='forbid')
+    """표준화된 핸들러 응답"""
+    model_config = ConfigDict(
+        extra='forbid',
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
     
-    content: str = Field(..., min_length=1, description="응답 내용")
+    content: str = Field(..., min_length=1, description="생성된 답변")
     confidence: float = Field(..., ge=0.0, le=1.0, description="컨피던스 점수")
-    handler_type: HandlerType = Field(..., description="처리한 핸들러 타입")
-    citations: List[Citation] = Field(default_factory=list, description="소스 인용 목록")
+    handler_type: HandlerType = Field(..., description="처리한 핸들러 ID")
+    citations: List[Citation] = Field(default_factory=list, description="소스 인용 목록 (2-3건 권장)")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="추가 메타데이터")
-    processing_time: float = Field(default=0.0, ge=0.0, description="처리 시간 (초)")
+    processing_time_ms: Optional[int] = Field(default=None, ge=0, description="처리 시간 (밀리초)")
     
     @field_validator('citations')
     @classmethod
-    def validate_citations_limit(cls, v):
-        """인용 개수 제한 (최대 5개)"""
-        if len(v) > 5:
-            return v[:5]  # 상위 5개만 유지
+    def validate_citation_count(cls, v):
+        """Citation 개수 검증 (2-3건 권장)"""
+        if len(v) == 0:
+            logger.warning("Citation이 없습니다. 소스 인용이 필요합니다.")
+        elif len(v) > 5:
+            logger.warning(f"Citation이 너무 많습니다 ({len(v)}개). 핵심만 선별 권장.")
         return v
     
     @property
     def confidence_level(self) -> ConfidenceLevel:
-        """컨피던스 레벨 분류"""
-        if self.confidence >= 0.8:
+        """컨피던스 레벨 자동 분류"""
+        if self.confidence >= 0.75:
             return ConfidenceLevel.HIGH
-        elif self.confidence >= 0.6:
+        elif self.confidence >= 0.60:
             return ConfidenceLevel.MEDIUM
         else:
             return ConfidenceLevel.LOW
     
-    def add_citation(self, source_file: str, source_id: str, 
-                    relevance_score: float, context: str) -> None:
-        """인용 추가 (길이 제한 적용)"""
-        # context 길이 제한
-        truncated_context = context[:200] if len(context) > 200 else context
-        
-        citation = Citation(
-            source_file=source_file,
-            source_id=source_id,
-            relevance_score=relevance_score,
-            context=truncated_context
-        )
-        
-        self.citations.append(citation)
-        
-        # 최대 5개 제한
-        if len(self.citations) > 5:
-            self.citations = self.citations[:5]
+    @property
+    def is_reliable(self) -> bool:
+        """신뢰할만한 응답인지 여부"""
+        return (self.confidence >= 0.65 and 
+                len(self.citations) >= 1 and 
+                self.processing_time_ms is not None and 
+                2000 <= self.processing_time_ms <= 15000)
 
 
 # ================================================================
-# 5. 캐시 관련 모델
+# 4. 라우팅 관련 모델
+# ================================================================
+
+class HandlerCandidate(BaseModel):
+    """핸들러 후보 (라우터 출력)"""
+    model_config = ConfigDict(extra='forbid')
+    
+    handler_type: HandlerType = Field(..., description="핸들러 타입")
+    score: float = Field(..., ge=0.0, le=1.0, description="매칭 점수")
+    reasoning: str = Field(default="", description="선정 근거")
+
+
+class RouterResponse(BaseModel):
+    """라우터 응답 (Top-2 핸들러)"""
+    model_config = ConfigDict(extra='forbid')
+    
+    candidates: List[HandlerCandidate] = Field(..., description="핸들러 후보 목록")
+    query_classification: str = Field(default="", description="쿼리 분류 결과")
+    routing_method: str = Field(default="hybrid", description="라우팅 방식 (rule/llm/hybrid)")
+    
+    @field_validator('candidates')
+    @classmethod
+    def validate_candidate_limit(cls, v):
+        """후보 개수 제한 (최대 2개)"""
+        if len(v) > 2:
+            return v[:2]  # 상위 2개만 유지
+        return v
+
+
+# ================================================================
+# 5. 캐시 및 성능 모델
 # ================================================================
 
 class CacheEntry(BaseModel):
-    """캐시 항목"""
+    """캐시 엔트리"""
     model_config = ConfigDict(extra='forbid')
     
     key: str = Field(..., description="캐시 키")
-    value: Any = Field(..., description="캐시 값")
-    ttl_seconds: int = Field(..., gt=0, description="TTL (초)")
+    value: Any = Field(..., description="캐시된 값")
     created_at: datetime = Field(default_factory=datetime.now, description="생성 시간")
-    access_count: int = Field(default=0, description="접근 횟수")
+    ttl_seconds: int = Field(default=3600, description="TTL (초)")
     
     @property
     def is_expired(self) -> bool:
-        """만료 여부 확인"""
+        """캐시 만료 여부"""
         from datetime import timedelta
         expiry_time = self.created_at + timedelta(seconds=self.ttl_seconds)
         return datetime.now() > expiry_time
-    
-    def access(self) -> None:
-        """접근 시 카운터 증가"""
-        self.access_count += 1
 
-
-# ================================================================
-# 6. 성능/진단 관련 모델
-# ================================================================
 
 class ProcessingMetrics(BaseModel):
-    """처리 성능 메트릭"""
+    """처리 메트릭스"""
     model_config = ConfigDict(extra='forbid')
     
-    query_hash: str = Field(..., description="쿼리 해시")
-    handler_type: HandlerType = Field(..., description="핸들러 타입")
-    confidence_score: float = Field(..., ge=0.0, le=1.0, description="컨피던스")
-    processing_time: float = Field(..., ge=0.0, description="처리 시간")
-    cache_hit: bool = Field(default=False, description="캐시 히트 여부")
-    retrieval_count: int = Field(default=0, ge=0, description="검색된 문서 수")
-    timestamp: datetime = Field(default_factory=datetime.now, description="처리 시간")
+    query_tokens: int = Field(default=0, description="쿼리 토큰 수")
+    retrieval_time_ms: int = Field(default=0, description="검색 시간")
+    generation_time_ms: int = Field(default=0, description="생성 시간")
+    total_time_ms: int = Field(default=0, description="총 처리 시간")
+    cache_hits: int = Field(default=0, description="캐시 히트 수")
+    retrieved_docs: int = Field(default=0, description="검색된 문서 수")
 
 
 class PerformanceMetrics(BaseModel):
-    """성능 메트릭"""
+    """성능 메트릭스 (시스템 전체)"""
     model_config = ConfigDict(extra='forbid')
     
-    total_time_ms: int = Field(..., ge=0, description="총 처리 시간")
-    router_time_ms: int = Field(default=0, ge=0, description="라우터 시간")
-    handler_time_ms: int = Field(default=0, ge=0, description="핸들러 시간")
-    retrieval_time_ms: int = Field(default=0, ge=0, description="검색 시간")
-    generation_time_ms: int = Field(default=0, ge=0, description="생성 시간")
-    cache_hits: int = Field(default=0, ge=0, description="캐시 히트 수")
-    cache_misses: int = Field(default=0, ge=0, description="캐시 미스 수")
-    
-    @property
-    def cache_hit_rate(self) -> float:
-        """캐시 히트율"""
-        total = self.cache_hits + self.cache_misses
-        return self.cache_hits / total if total > 0 else 0.0
-    
-    @property
-    def within_timebox(self) -> bool:
-        """15.0초 타임박스 준수 여부"""
-        return 2000 <= self.total_time_ms <= 15000
+    avg_response_time_ms: float = Field(default=0.0, description="평균 응답 시간")
+    avg_confidence: float = Field(default=0.0, description="평균 컨피던스")
+    cache_hit_rate: float = Field(default=0.0, description="캐시 히트율")
+    requests_per_minute: float = Field(default=0.0, description="분당 요청 수")
+    error_rate: float = Field(default=0.0, description="오류율")
 
+
+# ================================================================
+# 6. 모니터링 및 오류 처리 모델
+# ================================================================
 
 class ErrorLog(BaseModel):
-    """오류 로깅 모델"""
-    model_config = ConfigDict(extra='forbid')
-    
-    error_type: str = Field(..., description="오류 타입")
-    error_message: str = Field(..., description="오류 메시지")
-    handler_type: Optional[HandlerType] = Field(default=None, description="핸들러 타입")
-    query_text: str = Field(default="", description="쿼리 텍스트")
-    trace_id: str = Field(..., description="추적 ID")
-    timestamp: datetime = Field(default_factory=datetime.now, description="오류 시간")
-
-
-# ================================================================
-# 7. 에러 처리 모델
-# ================================================================
-
-class ErrorResponse(BaseModel):
-    """에러 응답"""
+    """오류 로그"""
     model_config = ConfigDict(
         extra='forbid',
-        json_encoders={
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders={datetime: lambda v: v.isoformat()}
     )
     
-    error_code: str = Field(..., description="에러 코드")
-    error_message: str = Field(..., description="에러 메시지")
-    handler_id: Optional[HandlerType] = Field(default=None, description="에러 발생 핸들러")
+    error_id: str = Field(default_factory=lambda: str(uuid4())[:8], description="오류 ID")
+    error_type: str = Field(..., description="오류 유형")
+    error_message: str = Field(..., description="오류 메시지")
+    handler_type: Optional[HandlerType] = Field(default=None, description="발생 핸들러")
+    query_text: Optional[str] = Field(default=None, description="문제 쿼리")
+    stack_trace: Optional[str] = Field(default=None, description="스택 트레이스")
+    timestamp: datetime = Field(default_factory=datetime.now, description="발생 시간")
+
+
+class ErrorResponse(BaseModel):
+    """오류 응답"""
+    model_config = ConfigDict(
+        extra='forbid',
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+    
+    error_code: str = Field(..., description="오류 코드")
+    error_message: str = Field(..., description="오류 메시지")
     trace_id: str = Field(..., description="추적 ID")
-    timestamp: datetime = Field(default_factory=datetime.now, description="오류 시간")
+    handler_id: Optional[HandlerType] = Field(default=None, description="문제 핸들러")
     recovery_suggestion: Optional[str] = Field(default=None, description="복구 제안")
+    timestamp: datetime = Field(default_factory=datetime.now, description="오류 시간")
 
 
 # ================================================================
-# 8. 유틸리티 함수들
+# 7. 유틸리티 함수들
 # ================================================================
 
 def create_error_response(error_msg: str, handler_type: HandlerType = HandlerType.FALLBACK) -> HandlerResponse:
@@ -437,7 +405,7 @@ def truncate_text(text: str, max_length: int = 200) -> str:
 
 
 # ================================================================
-# 9. 기본 내보내기
+# 8. 기본 내보내기
 # ================================================================
 
 __all__ = [
