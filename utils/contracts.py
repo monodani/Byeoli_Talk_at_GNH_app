@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - contracts.py (Pydantic v2 호환성 수정)
+벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - contracts.py (최종 수정)
 
 시스템 전체의 인터페이스 계약을 정의하는 Pydantic 모델 모음
 - QueryRequest: 사용자 요청 표준화
@@ -8,6 +8,8 @@
 - ConversationContext: 대화 상태 관리
 - Citation: 소스 인용 표준화
 - 모든 데이터 교환 시 타입 안전성 보장
+
+🚨 중요: TextChunk는 utils.textifier에서만 정의하고 여기서는 제거함
 """
 
 import logging
@@ -52,35 +54,7 @@ class ConfidenceLevel(str, Enum):
 
 
 # ================================================================
-# 2. Pydantic v2 호환 TextChunk 클래스 (핵심 수정)
-# ================================================================
-
-class TextChunk(BaseModel):
-    """텍스트 청크 데이터 모델 (Pydantic v2 완전 호환)"""
-    model_config = ConfigDict(
-        extra='forbid',
-        str_strip_whitespace=True,
-        validate_assignment=True
-    )
-    
-    text: str = Field(..., min_length=1, max_length=10000, description="청크 텍스트")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="청크 메타데이터")
-    
-    def __hash__(self) -> int:
-        """해시 값 계산 (캐시 키 용도)"""
-        return hash((self.text, str(sorted(self.metadata.items()))))
-    
-    def get_source_id(self) -> str:
-        """소스 ID 반환"""
-        return self.metadata.get('source_id', 'unknown')
-    
-    def get_cache_ttl(self) -> int:
-        """캐시 TTL 반환"""
-        return self.metadata.get('cache_ttl', 86400)  # 기본 24시간
-
-
-# ================================================================
-# 3. 대화 관련 모델
+# 2. 대화 관련 모델
 # ================================================================
 
 class ChatTurn(BaseModel):
@@ -151,7 +125,7 @@ class ConversationContext(BaseModel):
 
 
 # ================================================================
-# 4. 라우팅 관련 모델
+# 3. 라우팅 관련 모델
 # ================================================================
 
 class HandlerCandidate(BaseModel):
@@ -196,7 +170,7 @@ class RouterResponse(BaseModel):
 
 
 # ================================================================
-# 5. 요청/응답 모델
+# 4. 요청/응답 모델
 # ================================================================
 
 class QueryRequest(BaseModel):
@@ -285,7 +259,7 @@ class HandlerResponse(BaseModel):
 
 
 # ================================================================
-# 6. 캐시 관련 모델
+# 5. 캐시 관련 모델
 # ================================================================
 
 class CacheEntry(BaseModel):
@@ -311,7 +285,7 @@ class CacheEntry(BaseModel):
 
 
 # ================================================================
-# 7. 성능/진단 관련 모델
+# 6. 성능/진단 관련 모델
 # ================================================================
 
 class ProcessingMetrics(BaseModel):
@@ -364,7 +338,7 @@ class ErrorLog(BaseModel):
 
 
 # ================================================================
-# 8. 에러 처리 모델
+# 7. 에러 처리 모델
 # ================================================================
 
 class ErrorResponse(BaseModel):
@@ -380,12 +354,12 @@ class ErrorResponse(BaseModel):
     error_message: str = Field(..., description="에러 메시지")
     handler_id: Optional[HandlerType] = Field(default=None, description="에러 발생 핸들러")
     trace_id: str = Field(..., description="추적 ID")
-    timestamp: datetime = Field(default_factory=datetime.now, description="에러 시간")
+    timestamp: datetime = Field(default_factory=datetime.now, description="오류 시간")
     recovery_suggestion: Optional[str] = Field(default=None, description="복구 제안")
 
 
 # ================================================================
-# 9. 유틸리티 함수들
+# 8. 유틸리티 함수들
 # ================================================================
 
 def create_error_response(error_msg: str, handler_type: HandlerType = HandlerType.FALLBACK) -> HandlerResponse:
@@ -463,15 +437,15 @@ def truncate_text(text: str, max_length: int = 200) -> str:
 
 
 # ================================================================
-# 10. 기본 내보내기
+# 9. 기본 내보내기
 # ================================================================
 
 __all__ = [
     # 열거형
     'MessageRole', 'HandlerType', 'ConfidenceLevel',
     
-    # 핵심 모델
-    'TextChunk', 'ChatTurn', 'ConversationContext',
+    # 핵심 모델 (TextChunk는 utils.textifier에서 import)
+    'ChatTurn', 'ConversationContext',
     'QueryRequest', 'HandlerResponse', 'Citation',
     
     # 라우팅 모델
