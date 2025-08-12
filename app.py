@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - app.py
+벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - app.py
 
 Streamlit 엔트리포인트: 사용자 인터페이스 및 시스템 통합
 - IndexManager 싱글톤 초기화 및 사전 로드
