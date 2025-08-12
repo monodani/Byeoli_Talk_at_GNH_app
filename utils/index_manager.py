@@ -81,7 +81,7 @@ class VectorStoreMetadata:
         self.vectorstore_path = self._get_vectorstore_path()
         self.faiss_path = self.vectorstore_path / f"{self.domain}_index.faiss"
         self.pkl_path = self.vectorstore_path / f"{self.domain}_index.pkl"
-        self.bm25_path = self.vectorstore_path / f"{self.domain}_bm25.pkl"
+        self.bm25_path = self.vectorstore_path / f"{self.domain}_index.bm25"
         
         # ✅ OpenAIEmbeddings 안전한 초기화
         self.embeddings = self._init_embeddings()
@@ -268,6 +268,14 @@ class IndexManager:
             # 문서 메타데이터 로드
             with open(meta.pkl_path, "rb") as f:
                 meta.documents = pickle.load(f)
+            
+
+            if meta.vectorstore:
+                # FAISS의 docstore에서 문서 목록을 직접 가져옵니다.
+                # TextChunk 객체를 사용했다면 value가 해당 객체입니다.
+                meta.documents = list(meta.vectorstore.docstore._dict.values())
+            else:
+                meta.documents = []
             
             # BM25 인덱스 로드
             if meta.bm25_path.exists():

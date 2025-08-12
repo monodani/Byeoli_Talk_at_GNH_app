@@ -417,7 +417,7 @@ class QueryExpander:
 
 
 # ================================================================
-# 5. ContextManager 메인 클래스 (OpenAI 호환성 수정)
+# 5. ContextManager 메인 클래스
 # ================================================================
 
 class ContextManager:
@@ -435,29 +435,7 @@ class ContextManager:
         if self._initialized:
             return
             
-        # ✅ OpenAI 클라이언트 안전한 초기화 (에러 핸들링 강화)
-        try:
-            self.openai_client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
-            logger.info("✅ OpenAI 클라이언트 초기화 성공")
-        except TypeError as e:
-            if 'proxies' in str(e):
-                logger.warning("⚠️ proxies 매개변수 오류 발생, 대체 초기화 시도")
-                # proxies 오류 시 대체 초기화 방식
-                try:
-                    self.openai_client = openai.OpenAI(
-                        api_key=config.OPENAI_API_KEY,
-                        timeout=30.0
-                    )
-                    logger.info("✅ 대체 방식으로 OpenAI 클라이언트 초기화 성공")
-                except Exception as e2:
-                    logger.error(f"❌ 대체 초기화도 실패: {e2}")
-                    self.openai_client = None
-            else:
-                logger.error(f"❌ OpenAI 초기화 실패: {e}")
-                self.openai_client = None
-        except Exception as e:
-            logger.error(f"❌ 예상치 못한 OpenAI 초기화 오류: {e}")
-            self.openai_client = None
+        self.openai_client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
         
         # 메모리 기반 세션 저장소 (st.session_state와 연동)
         self.conversations: Dict[str, ConversationContext] = {}
@@ -467,32 +445,14 @@ class ContextManager:
         self.summary_update_interval = config.CONVERSATION_SUMMARY_UPDATE_INTERVAL  # 4턴
         self.summary_token_threshold = config.CONVERSATION_SUMMARY_TOKEN_THRESHOLD  # 1000토큰
         
-        # 컴포넌트 초기화 (OpenAI 클라이언트 상태에 따른 안전한 초기화)
+        # 컴포넌트 초기화
         self.entity_extractor = EntityExtractor()
-        
-        # OpenAI 클라이언트가 있을 때만 AI 기반 컴포넌트 초기화
-        if self.openai_client:
-            try:
-                self.context_summarizer = ContextSummarizer(self.openai_client)
-                self.followup_detector = FollowUpDetector(self.openai_client)
-                self.query_expander = QueryExpander(self.openai_client)
-                logger.info("✅ AI 기반 컴포넌트 초기화 완료")
-            except Exception as e:
-                logger.warning(f"⚠️ AI 컴포넌트 초기화 실패: {e}, 기본 모드로 동작")
-                self.context_summarizer = None
-                self.followup_detector = None
-                self.query_expander = None
-        else:
-            logger.warning("⚠️ OpenAI 클라이언트 없음, AI 기능 없이 기본 모드로 동작")
-            self.context_summarizer = None
-            self.followup_detector = None
-            self.query_expander = None
+        self.context_summarizer = ContextSummarizer(self.openai_client)
+        self.followup_detector = FollowUpDetector(self.openai_client)
+        self.query_expander = QueryExpander(self.openai_client)
         
         self._initialized = True
-        
-        # 초기화 상태 로깅
-        status = "완전" if self.openai_client else "제한적"
-        logger.info(f"🎯 ContextManager {status} 초기화 완료")
+        logger.info("🎯 ContextManager 초기화 완료")
     
     def _estimate_tokens(self, text: str) -> int:
         """텍스트 토큰 수 추정 (1토큰 ≈ 3~4글자)"""
@@ -522,7 +482,7 @@ class ContextManager:
         return self.conversations[conversation_id]
     
     def add_message(self, conversation_id: str, role: str, text: str) -> ConversationContext:
-        """메시지 추가 및 컨텍스트 업데이트 (AI 기능 안전 처리)"""
+        """메시지 추가 및 컨텍스트 업데이트"""
         context = self.get_or_create_context(conversation_id)
         
         # 새 메시지 추가
@@ -543,18 +503,15 @@ class ContextManager:
             context.entities.extend(new_entities)
             context.entities = list(set(context.entities))[:30]  # 중복 제거 및 최대 30개
         
-        # 요약 업데이트 (AI 기능 사용 가능할 때만)
+        # 요약 업데이트 조건 확인
         should_update_summary = (
             len(context.recent_messages) % self.summary_update_interval == 0 or  # 매 N턴
             self._estimate_tokens(" ".join([msg.text for msg in context.recent_messages])) > self.summary_token_threshold  # 토큰 임계값 초과
         )
         
-        if should_update_summary and len(context.recent_messages) >= 2 and self.context_summarizer:
-            try:
-                context.summary = self.context_summarizer.generate_summary(context.recent_messages)
-                logger.debug(f"대화 요약 업데이트: {conversation_id}")
-            except Exception as e:
-                logger.warning(f"요약 생성 실패: {e}")
+        if should_update_summary and len(context.recent_messages) >= 2:
+            context.summary = self.context_summarizer.generate_summary(context.recent_messages)
+            logger.debug(f"대화 요약 업데이트: {conversation_id}")
         
         context.updated_at = datetime.now(timezone.utc)
         
@@ -564,26 +521,18 @@ class ContextManager:
                            conversation_id: str, 
                            query_text: str, 
                            trace_id: Optional[str] = None) -> QueryRequest:
-        """QueryRequest 객체 생성 (AI 기능 안전 처리)"""
+        """QueryRequest 객체 생성 (컨텍스트 포함)"""
         
         # 사용자 메시지 추가
         context = self.add_message(conversation_id, "user", query_text)
         
-        # 후속질문 감지 (AI 기능 사용 가능할 때만)
-        is_followup = False
-        if self.followup_detector:
-            try:
-                is_followup = self.followup_detector.detect_followup(query_text, context.recent_messages)
-            except Exception as e:
-                logger.warning(f"후속질문 감지 실패: {e}")
+        # 후속질문 감지
+        is_followup = self.followup_detector.detect_followup(query_text, context.recent_messages)
         
-        # 쿼리 확장 (후속질문인 경우 + AI 기능 사용 가능할 때만)
+        # 쿼리 확장 (후속질문인 경우)
         expanded_query = query_text
-        if is_followup and self.query_expander:
-            try:
-                expanded_query = self.query_expander.expand_query(query_text, context)
-            except Exception as e:
-                logger.warning(f"쿼리 확장 실패: {e}")
+        if is_followup:
+            expanded_query = self.query_expander.expand_query(query_text, context)
         
         # trace_id 생성 (제공되지 않은 경우)
         if not trace_id:
@@ -651,8 +600,7 @@ class ContextManager:
             "unique_entities": len(set(
                 entity for ctx in self.conversations.values() 
                 for entity in ctx.entities
-            )),
-            "ai_features_enabled": self.openai_client is not None
+            ))
         }
     
     def export_conversation(self, conversation_id: str) -> Optional[Dict]:
@@ -666,9 +614,9 @@ class ContextManager:
             "summary": context.summary,
             "entities": context.entities,
             "messages": [asdict(msg) for msg in context.recent_messages],
-            "updated_at": context.updated_at.isoformat() if context.updated_at else None,
-            "ai_features_enabled": self.openai_client is not None
+            "updated_at": context.updated_at.isoformat() if context.updated_at else None
         }
+
 
 # ================================================================
 # 6. 싱글톤 인스턴스 및 편의 함수들
