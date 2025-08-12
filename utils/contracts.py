@@ -151,7 +151,52 @@ class ConversationContext(BaseModel):
 
 
 # ================================================================
-# 4. 요청/응답 모델
+# 4. 라우팅 관련 모델
+# ================================================================
+
+class HandlerCandidate(BaseModel):
+    """핸들러 후보 (라우팅 단계)"""
+    model_config = ConfigDict(extra='forbid')
+    
+    handler_id: HandlerType = Field(..., description="핸들러 ID")
+    rule_score: float = Field(default=0.0, ge=0.0, le=1.0, description="규칙 기반 점수")
+    llm_score: float = Field(default=0.0, ge=0.0, le=1.0, description="LLM 기반 점수")
+    combined_score: float = Field(default=0.0, ge=0.0, le=1.0, description="종합 점수")
+    reasoning: str = Field(default="", description="선정 근거")
+    
+    @field_validator('combined_score', mode='before')
+    @classmethod
+    def calculate_combined_score(cls, v, info):
+        """종합 점수 자동 계산 (rule:llm = 0.3:0.7)"""
+        if info.data:
+            rule_score = info.data.get('rule_score', 0.0)
+            llm_score = info.data.get('llm_score', 0.0)
+            return round(rule_score * 0.3 + llm_score * 0.7, 3)
+        return v
+
+
+class RouterResponse(BaseModel):
+    """라우터 응답 (Top-2 핸들러 선정 결과)"""
+    model_config = ConfigDict(extra='forbid')
+    
+    selected_handlers: List[HandlerCandidate] = Field(..., max_length=2, description="선정된 핸들러 (최대 2개)")
+    selection_time_ms: int = Field(..., ge=0, description="선정 소요 시간")
+    routing_strategy: str = Field(default="hybrid", description="사용된 라우팅 전략")
+    trace_id: str = Field(..., description="요청 추적 ID")
+    
+    @field_validator('selected_handlers')
+    @classmethod
+    def validate_handler_count(cls, v):
+        """핸들러 개수 검증"""
+        if len(v) == 0:
+            raise ValueError("최소 1개의 핸들러가 선정되어야 합니다.")
+        if len(v) > 2:
+            return v[:2]  # 상위 2개만 유지
+        return v
+
+
+# ================================================================
+# 5. 요청/응답 모델
 # ================================================================
 
 class QueryRequest(BaseModel):
@@ -240,7 +285,33 @@ class HandlerResponse(BaseModel):
 
 
 # ================================================================
-# 5. 로깅 및 모니터링 모델
+# 6. 캐시 관련 모델
+# ================================================================
+
+class CacheEntry(BaseModel):
+    """캐시 항목"""
+    model_config = ConfigDict(extra='forbid')
+    
+    key: str = Field(..., description="캐시 키")
+    value: Any = Field(..., description="캐시 값")
+    ttl_seconds: int = Field(..., gt=0, description="TTL (초)")
+    created_at: datetime = Field(default_factory=datetime.now, description="생성 시간")
+    access_count: int = Field(default=0, description="접근 횟수")
+    
+    @property
+    def is_expired(self) -> bool:
+        """만료 여부 확인"""
+        from datetime import timedelta
+        expiry_time = self.created_at + timedelta(seconds=self.ttl_seconds)
+        return datetime.now() > expiry_time
+    
+    def access(self) -> None:
+        """접근 시 카운터 증가"""
+        self.access_count += 1
+
+
+# ================================================================
+# 7. 성능/진단 관련 모델
 # ================================================================
 
 class ProcessingMetrics(BaseModel):
@@ -256,6 +327,30 @@ class ProcessingMetrics(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now, description="처리 시간")
 
 
+class PerformanceMetrics(BaseModel):
+    """성능 메트릭"""
+    model_config = ConfigDict(extra='forbid')
+    
+    total_time_ms: int = Field(..., ge=0, description="총 처리 시간")
+    router_time_ms: int = Field(default=0, ge=0, description="라우터 시간")
+    handler_time_ms: int = Field(default=0, ge=0, description="핸들러 시간")
+    retrieval_time_ms: int = Field(default=0, ge=0, description="검색 시간")
+    generation_time_ms: int = Field(default=0, ge=0, description="생성 시간")
+    cache_hits: int = Field(default=0, ge=0, description="캐시 히트 수")
+    cache_misses: int = Field(default=0, ge=0, description="캐시 미스 수")
+    
+    @property
+    def cache_hit_rate(self) -> float:
+        """캐시 히트율"""
+        total = self.cache_hits + self.cache_misses
+        return self.cache_hits / total if total > 0 else 0.0
+    
+    @property
+    def within_timebox(self) -> bool:
+        """15.0초 타임박스 준수 여부"""
+        return 2000 <= self.total_time_ms <= 15000
+
+
 class ErrorLog(BaseModel):
     """오류 로깅 모델"""
     model_config = ConfigDict(extra='forbid')
@@ -269,7 +364,28 @@ class ErrorLog(BaseModel):
 
 
 # ================================================================
-# 6. 유틸리티 함수들
+# 8. 에러 처리 모델
+# ================================================================
+
+class ErrorResponse(BaseModel):
+    """에러 응답"""
+    model_config = ConfigDict(
+        extra='forbid',
+        json_encoders={
+            datetime: lambda v: v.isoformat()
+        }
+    )
+    
+    error_code: str = Field(..., description="에러 코드")
+    error_message: str = Field(..., description="에러 메시지")
+    handler_id: Optional[HandlerType] = Field(default=None, description="에러 발생 핸들러")
+    trace_id: str = Field(..., description="추적 ID")
+    timestamp: datetime = Field(default_factory=datetime.now, description="에러 시간")
+    recovery_suggestion: Optional[str] = Field(default=None, description="복구 제안")
+
+
+# ================================================================
+# 9. 유틸리티 함수들
 # ================================================================
 
 def create_error_response(error_msg: str, handler_type: HandlerType = HandlerType.FALLBACK) -> HandlerResponse:
@@ -294,6 +410,51 @@ def create_fallback_response(query_text: str) -> HandlerResponse:
     )
 
 
+def create_query_request(
+    text: str,
+    context: Optional[ConversationContext] = None,
+    follow_up: bool = False,
+    **kwargs
+) -> QueryRequest:
+    """QueryRequest 생성 헬퍼"""
+    return QueryRequest(
+        text=text,
+        context=context,
+        follow_up=follow_up,
+        **kwargs
+    )
+
+
+def create_error_response_model(
+    error_code: str,
+    error_message: str,
+    trace_id: str,
+    handler_id: Optional[HandlerType] = None,
+    recovery_suggestion: Optional[str] = None
+) -> ErrorResponse:
+    """ErrorResponse 생성 헬퍼"""
+    return ErrorResponse(
+        error_code=error_code,
+        error_message=error_message,
+        trace_id=trace_id,
+        handler_id=handler_id,
+        recovery_suggestion=recovery_suggestion
+    )
+
+
+def normalize_query(text: str) -> str:
+    """쿼리 정규화 (캐시 키 생성용)"""
+    import re
+    
+    # 공백 정리 및 소문자 변환
+    normalized = re.sub(r'\s+', ' ', text.lower().strip())
+    
+    # 특수문자 제거 (한글, 영문, 숫자, 기본 문장부호만 유지)
+    normalized = re.sub(r'[^\w\s가-힣.,?!]', '', normalized)
+    
+    return normalized
+
+
 def truncate_text(text: str, max_length: int = 200) -> str:
     """텍스트 길이 제한 (Citation context용)"""
     if len(text) <= max_length:
@@ -302,7 +463,7 @@ def truncate_text(text: str, max_length: int = 200) -> str:
 
 
 # ================================================================
-# 7. 기본 내보내기
+# 10. 기본 내보내기
 # ================================================================
 
 __all__ = [
@@ -313,9 +474,17 @@ __all__ = [
     'TextChunk', 'ChatTurn', 'ConversationContext',
     'QueryRequest', 'HandlerResponse', 'Citation',
     
-    # 모니터링
-    'ProcessingMetrics', 'ErrorLog',
+    # 라우팅 모델
+    'HandlerCandidate', 'RouterResponse',
+    
+    # 캐시 & 성능
+    'CacheEntry', 'ProcessingMetrics', 'PerformanceMetrics',
+    
+    # 모니터링 & 오류
+    'ErrorLog', 'ErrorResponse',
     
     # 유틸리티
-    'create_error_response', 'create_fallback_response', 'truncate_text'
+    'create_error_response', 'create_fallback_response', 
+    'create_query_request', 'create_error_response_model',
+    'normalize_query', 'truncate_text'
 ]
