@@ -516,7 +516,7 @@ def print_config_summary():
     """설정 요약 출력"""
     config = get_config()
     
-    print("\n🔧 Byeoli Talk at GNH 설정 요약")
+    print("\n🔧 Byeoli Talk at GNHRD 설정 요약")
     print("=" * 50)
     print(f"📁 프로젝트 루트: {config.ROOT_DIR}")
     print(f"🔧 앱 모드: {config.APP_MODE}")
