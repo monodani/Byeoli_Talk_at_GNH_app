@@ -89,11 +89,8 @@ class base_handler(ABC):
                 return None
             
             embeddings = OpenAIEmbeddings(
-                openai_api_key=api_key,
-                model=config.EMBEDDING_MODEL,
-                show_progress_bar=False,
-                max_retries=3,
-                request_timeout=30
+                api_key=api_key,
+                model=config.EMBEDDING_MODEL
             )
             
             logger.debug(f"✅ {self.domain} 핸들러 OpenAIEmbeddings 초기화 완료")
@@ -117,12 +114,10 @@ class base_handler(ABC):
                 return None
             
             llm = ChatOpenAI(
-                openai_api_key=api_key,
+                api_key=api_key,
                 temperature=0.1,
                 model="gpt-4o-mini",
-                streaming=True,
-                max_retries=3,
-                request_timeout=30
+                streaming=True
             )
             
             logger.debug(f"✅ {self.domain} 핸들러 ChatOpenAI 초기화 완료")
