@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - base_handler 기반 클래스 (OpenAI 호환성 수정)
+벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - base_handler 기반 클래스 (OpenAI 호환성 수정)
 
 모든 핸들러의 공통 기능을 제공하는 추상 베이스 클래스:
 - IndexManager 싱글톤을 활용한 중앙집중식 벡터스토어 관리
