@@ -485,8 +485,14 @@ def initialize_session_state():
     if 'conversation_id' not in st.session_state:
         st.session_state.conversation_id = str(uuid.uuid4())
     
+    # ContextManager 초기화 시 예외 처리
     if 'context_manager' not in st.session_state:
-        st.session_state.context_manager = ContextManager()
+        try:
+            st.session_state.context_manager = ContextManager()
+        except Exception as e:
+            logger.warning(f"ContextManager 초기화 실패: {e}")
+            # Graceful Degradation: 기본 대화 컨텍스트만 사용
+            st.session_state.context_manager = None
     
     if 'chat_history' not in st.session_state:
         st.session_state.chat_history = []
@@ -514,6 +520,16 @@ def reset_session():
     st.session_state.conversation_context = ConversationContext(
         conversation_id=st.session_state.conversation_id
     )
+    
+    # ContextManager 컨텍스트도 초기화
+    if st.session_state.context_manager:
+        try:
+            st.session_state.context_manager.get_or_create_context(
+                st.session_state.conversation_id
+            )
+        except Exception as e:
+            logger.warning(f"ContextManager 세션 초기화 실패: {e}")
+    
     st.session_state.performance_stats = {
         "total_queries": 0,
         "avg_response_time": 0,
@@ -579,6 +595,14 @@ def render_sidebar():
         st.markdown("### 💬 대화 정보")
         st.write(f"**세션 ID**: `{st.session_state.conversation_id[:8]}...`")
         st.write(f"**대화 횟수**: {len(st.session_state.chat_history) // 2}회")
+        
+        # ContextManager 상태 표시
+        if st.session_state.context_manager:
+            st.markdown('<div class="status-indicator status-healthy">🤖 고급 컨텍스트 관리</div>', 
+                      unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="status-indicator status-degraded">🔧 기본 컨텍스트 관리</div>', 
+                      unsafe_allow_html=True)
         
         # 세션 초기화 버튼
         if st.button("🔄 새 대화 시작", use_container_width=True):
@@ -782,7 +806,26 @@ async def process_query(user_input: str) -> Dict[str, Any]:
             trace_id=str(uuid.uuid4())[:8]
         )
         
-        # 2. 시스템 상태에 따른 처리 분기
+        # 2. ContextManager 사용 가능 여부 확인 및 컨텍스트 업데이트
+        if st.session_state.context_manager:
+            try:
+                # 대화 컨텍스트 업데이트 (ContextManager 활용)
+                updated_context = st.session_state.context_manager.update_context(
+                    st.session_state.conversation_id,
+                    MessageRole.USER,
+                    user_input
+                )
+                query_request.context = updated_context
+                st.session_state.conversation_context = updated_context
+            except Exception as e:
+                logger.warning(f"ContextManager 컨텍스트 업데이트 실패: {e}")
+                # 기본 컨텍스트 수동 업데이트
+                st.session_state.conversation_context.add_message(MessageRole.USER, user_input)
+        else:
+            # ContextManager 없이 기본 컨텍스트 업데이트
+            st.session_state.conversation_context.add_message(MessageRole.USER, user_input)
+        
+        # 3. 시스템 상태에 따른 처리 분기
         system_status = st.session_state.system_status
         
         if not system_status["success"] or system_status.get("mode") == "fallback":
@@ -797,9 +840,20 @@ async def process_query(user_input: str) -> Dict[str, Any]:
             # 4. 응답 처리 및 컨텍스트 업데이트
             elapsed_time = time.time() - start_time
             
-            # 대화 컨텍스트 업데이트
-            st.session_state.conversation_context.add_message(MessageRole.USER, user_input)
-            st.session_state.conversation_context.add_message(MessageRole.ASSISTANT, response.answer)
+            # 대화 컨텍스트 업데이트 (ContextManager 또는 기본 방식)
+            if st.session_state.context_manager:
+                try:
+                    updated_context = st.session_state.context_manager.update_context(
+                        st.session_state.conversation_id,
+                        MessageRole.ASSISTANT,
+                        response.answer
+                    )
+                    st.session_state.conversation_context = updated_context
+                except Exception as e:
+                    logger.warning(f"응답 컨텍스트 업데이트 실패: {e}")
+                    st.session_state.conversation_context.add_message(MessageRole.ASSISTANT, response.answer)
+            else:
+                st.session_state.conversation_context.add_message(MessageRole.ASSISTANT, response.answer)
             
             # 성능 통계 업데이트
             _update_performance_stats(elapsed_time, True)
