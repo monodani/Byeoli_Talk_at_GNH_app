@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - base_handler 기반 클래스 (OpenAI 호환성 수정)
+경상남도인재개발원 RAG 챗봇 - base_handler 기반 클래스 (OpenAI 호환성 수정)
 
 모든 핸들러의 공통 기능을 제공하는 추상 베이스 클래스:
 - IndexManager 싱글톤을 활용한 중앙집중식 벡터스토어 관리
@@ -40,7 +40,7 @@ from rank_bm25 import BM25Okapi
 logger = logging.getLogger(__name__)
 
 
-class BaseHandler(ABC):
+class base_handler(ABC):
     """
     모든 핸들러의 기반 클래스 (OpenAI 호환성 수정)
     
@@ -54,7 +54,7 @@ class BaseHandler(ABC):
     
     def __init__(self, domain: str, index_name: str, confidence_threshold: float):
         """
-        BaseHandler 초기화 (OpenAI 호환성 수정)
+        base_handler 초기화 (OpenAI 호환성 수정)
         
         Args:
             domain: 도메인 이름 (예: "satisfaction")
