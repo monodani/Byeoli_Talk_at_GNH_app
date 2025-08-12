@@ -30,6 +30,7 @@ rich
 # 🧠 LangChain (호환 버전)
 langchain-core
 langchain-openai==0.1.14
+langchain-community
 
 # 📊 기타 필수
 scikit-learn
@@ -54,4 +55,5 @@ python-dateutil
 # 2. pydantic 범위 지정으로 호환성 확보
 # 3. 필수 패키지 모두 포함
 # ================================================================
+
 
