@@ -6,36 +6,48 @@ Streamlit 엔트리포인트: 사용자 인터페이스 및 시스템 통합
 - IndexManager 싱글톤 초기화 및 사전 로드
 - 대화형 RAG (ConversationContext 관리)  
 - 하이브리드 라우팅 + 병렬 실행 통합
-- 스트리밍 응답 처리
+- 단어 단위 스트리밍 응답 처리
+- 벼리 캐릭터 이미지 동적 선택
+- Graceful Degradation (APP_MODE 기반)
 - 3종 캐시 시스템 통합
 - 성능 모니터링 및 디버깅 기능
 
 주요 특징:
 - 1초 내 첫 토큰, 전체 2-4초 목표
-- 50토큰 단위 스트리밍 출력
+- 단어 단위 자연스러운 스트리밍 출력 (50ms)
+- 벼리 캐릭터 33개 이미지 상황별 선택
 - Citation 기반 신뢰성 확보
-- 세션별 대화 상태 관리
+- 세션별 대화 상태 관리 (UUID)
 - 실시간 성능 지표 표시
 """
 
 import asyncio
 import json
 import logging
+import os
 import time
+import traceback
+import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from pathlib import Path
+from typing import Dict, List, Optional, Any, Tuple
 
 import streamlit as st
 from streamlit.runtime.caching import cache_data
 
 # 프로젝트 모듈
-from utils.contracts import (
-    QueryRequest, ConversationContext, ChatTurn, MessageRole,
-    create_query_request, normalize_query
-)
-from utils.router import get_router, analyze_routing_performance
-from utils.index_manager import get_index_manager, preload_all_indexes, index_health_check
-from utils.config import config
+try:
+    from utils.contracts import (
+        QueryRequest, ConversationContext, ChatTurn, MessageRole,
+        HandlerResponse, Citation
+    )
+    from utils.router import get_router
+    from utils.index_manager import get_index_manager, preload_all_indexes, index_health_check
+    from utils.config import config
+    from utils.context_manager import ContextManager
+except ImportError as e:
+    st.error(f"❌ 모듈 import 실패: {e}")
+    st.stop()
 
 # 로깅 설정
 logging.basicConfig(
@@ -44,580 +56,1052 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 앱 모드 설정 (환경변수 기반)
+APP_MODE = os.environ.get('APP_MODE', 'development')  # production, development
+IS_PRODUCTION = APP_MODE == 'production'
+
 # ================================================================
-# 1. Streamlit 기본 설정
+# 1. Streamlit 기본 설정 및 CSS
 # ================================================================
 
 st.set_page_config(
-    page_title="벼리 (BYEOLI) - 경상남도인재개발원 AI 어시스턴트",
+    page_title="벼리톡@경상남도인재개발원 - AI 어시스턴트",
     page_icon="🌟",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# 벼리 캐릭터 이미지 매핑 (33개)
+BYEOLI_IMAGES = {
+    # 감정 및 심리 상태
+    "excited": "assets/Byeoli/excited_Byeoli.png",
+    "happy": "assets/Byeoli/happy_Byeoli.png",
+    "flattered": "assets/Byeoli/flattered_Byeoli.png",
+    "sorry": "assets/Byeoli/sorry_Byeoli.png",
+    "shameful": "assets/Byeoli/shameful_Byeoli.png", 
+    "sullen": "assets/Byeoli/sullen_Byeoli.png",
+    "screaming": "assets/Byeoli/screaming_Byeoli.png",
+    "worrying": "assets/Byeoli/worrying_Byeoli.png",
+    "cold": "assets/Byeoli/feel_cold_Byeoli.png",
+    "hot": "assets/Byeoli/feel_hot_Byeoli.png",
+    "hungry": "assets/Byeoli/feel_hungry.png",
+    
+    # 행동 및 활동
+    "advicing": "assets/Byeoli/advicing_Byeoli.png",
+    "typing": "assets/Byeoli/typing_Byeoli.png",
+    "writing": "assets/Byeoli/writing_Byeoli.png",
+    "cellphoning": "assets/Byeoli/cellphoning_Byeoli.png",
+    "presentating": "assets/Byeoli/presentating_Byeoli.png",
+    "hardworking": "assets/Byeoli/hardworking_Byeoli.png",
+    "yes_sir": "assets/Byeoli/yes_sir_Byeoli.png",
+    "you_call_me": "assets/Byeoli/you_call_me_Byeoli.png",
+    "good_night": "assets/Byeoli/good_night_Byeoli.png",
+    "go_to_work": "assets/Byeoli/go_to_work_Byeoli.png",
+    "getting_off": "assets/Byeoli/getting_off_Byeoli.png",
+    
+    # 상황 및 자연 현상
+    "mistake": "assets/Byeoli/Byeoli_mistake.png",
+    "rainy": "assets/Byeoli/rainy_Byeoli.png",
+    "snowy": "assets/Byeoli/snowy_Byeoli.png",
+    "thunder": "assets/Byeoli/thunder_Byeoli.png",
+    "dry_day": "assets/Byeoli/dry_day_Byeoli.png",
+    "gale": "assets/Byeoli/gale_and_Byeoli.png",
+    "typhoon": "assets/Byeoli/typooon_Byeoli.png",
+    "masked": "assets/Byeoli/Masked_Byeoli_for_dust.png",
+    
+    # 기본값
+    "default": "assets/Byeoli/advicing_Byeoli.png"
+}
+
 # 사용자 정의 CSS
 st.markdown("""
 <style>
+    /* 메인 헤더 스타일 */
     .main-header {
-        font-size: 2.5rem;
-        color: #1f77b4;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 15px;
         text-align: center;
         margin-bottom: 2rem;
+        box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
     }
+    
+    .main-header h1 {
+        font-size: 2.2rem;
+        margin: 0;
+        font-weight: 700;
+    }
+    
+    .main-header p {
+        font-size: 1.1rem;
+        margin: 0.5rem 0 0 0;
+        opacity: 0.9;
+    }
+    
+    /* 채팅 컨테이너 */
     .chat-container {
         max-height: 600px;
         overflow-y: auto;
         padding: 1rem;
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
+        border: 2px solid #e1e5e9;
+        border-radius: 15px;
         margin-bottom: 1rem;
+        background: #fafbfc;
     }
+    
+    /* 사용자 메시지 말풍선 */
     .user-message {
-        background: #f0f2f6;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 0.5rem 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 20px 20px 5px 20px;
+        margin: 0.8rem 0 0.8rem auto;
+        max-width: 75%;
         text-align: right;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        position: relative;
     }
+    
+    .user-message::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        right: -8px;
+        width: 0;
+        height: 0;
+        border: 8px solid transparent;
+        border-top-color: #764ba2;
+        border-bottom: 0;
+        margin-left: -8px;
+        margin-bottom: -8px;
+    }
+    
+    /* 벼리 메시지 말풍선 */
     .assistant-message {
-        background: #ffffff;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 0.5rem 0;
-        border-left: 4px solid #1f77b4;
+        background: white;
+        color: #2c3e50;
+        padding: 1rem 1.5rem;
+        border-radius: 20px 20px 20px 5px;
+        margin: 0.8rem auto 0.8rem 0;
+        max-width: 75%;
+        border: 2px solid #e1e5e9;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        position: relative;
     }
+    
+    .assistant-message::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: -8px;
+        width: 0;
+        height: 0;
+        border: 8px solid transparent;
+        border-top-color: white;
+        border-bottom: 0;
+        margin-right: -8px;
+        margin-bottom: -8px;
+    }
+    
+    /* 벼리 캐릭터 이미지 */
+    .byeoli-avatar {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        margin-right: 10px;
+        vertical-align: top;
+        border: 2px solid #e1e5e9;
+    }
+    
+    /* Citation 박스 */
     .citation-box {
-        background: #f8f9fa;
-        border-left: 3px solid #28a745;
-        padding: 0.5rem;
-        margin: 0.5rem 0;
+        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+        border-left: 4px solid #28a745;
+        padding: 0.8rem;
+        margin: 0.8rem 0;
+        border-radius: 8px;
         font-size: 0.9rem;
+        color: #2c3e50;
     }
+    
+    /* 성능 지표 */
     .performance-metrics {
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         color: #6c757d;
         margin-top: 0.5rem;
+        text-align: right;
+        font-style: italic;
     }
+    
+    /* 상태 표시기 */
     .status-indicator {
-        padding: 0.2rem 0.5rem;
-        border-radius: 5px;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
         font-size: 0.8rem;
         font-weight: bold;
+        margin: 0.2rem;
+        display: inline-block;
     }
-    .status-healthy { background: #d4edda; color: #155724; }
-    .status-degraded { background: #fff3cd; color: #856404; }
-    .status-error { background: #f8d7da; color: #721c24; }
+    
+    .status-healthy { 
+        background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); 
+        color: #155724; 
+    }
+    
+    .status-degraded { 
+        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); 
+        color: #856404; 
+    }
+    
+    .status-error { 
+        background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%); 
+        color: #721c24; 
+    }
+    
+    /* 입력 섹션 스타일 */
+    .input-section {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 15px;
+        border: 2px solid #e1e5e9;
+        margin-top: 1rem;
+    }
+    
+    /* 버튼 스타일 개선 */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 0.5rem 2rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* 사이드바 스타일 */
+    .sidebar-info {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+    }
+    
+    /* 애니메이션 효과 */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .fade-in {
+        animation: fadeIn 0.5s ease-out;
+    }
+    
+    /* 타이핑 애니메이션 */
+    @keyframes typing {
+        0% { opacity: 0.5; }
+        50% { opacity: 1; }
+        100% { opacity: 0.5; }
+    }
+    
+    .typing-indicator {
+        animation: typing 1.5s infinite;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ================================================================
-# 2. 시스템 초기화 함수들
+# 2. 벼리 캐릭터 이미지 선택 로직
 # ================================================================
 
-@st.cache_resource
-def initialize_system():
-    """시스템 컴포넌트 초기화 (캐싱)"""
-    logger.info("🚀 시스템 초기화 시작...")
+def get_byeoli_image(response: HandlerResponse = None, answer: str = "") -> str:
+    """
+    응답 내용과 상황에 따라 적절한 벼리 캐릭터 이미지 선택
     
+    Args:
+        response: 핸들러 응답 객체
+        answer: 응답 텍스트
+        
+    Returns:
+        str: 이미지 파일 경로
+    """
     try:
-        # IndexManager 사전 로드
-        preload_results = preload_all_indexes()
-        success_count = sum(1 for success in preload_results.values() if success)
+        # 응답 객체가 있으면 해당 정보 우선 활용
+        if response:
+            answer = response.answer
+            handler_id = getattr(response, 'handler_id', '')
+            confidence = getattr(response, 'confidence', 1.0)
+            
+            # fallback 핸들러이거나 낮은 컨피던스
+            if handler_id == 'fallback' or confidence < 0.3:
+                if any(word in answer for word in ['죄송', '미안', '오류', '실패', '문제']):
+                    return BYEOLI_IMAGES["sorry"]
+                else:
+                    return BYEOLI_IMAGES["mistake"]
         
-        # Router 초기화
-        router = get_router()
+        # 텍스트 내용 기반 이미지 선택
+        answer_lower = answer.lower()
         
-        # 초기화 결과
-        init_result = {
-            "success": success_count > 0,
-            "loaded_domains": f"{success_count}/{len(preload_results)}",
-            "preload_results": preload_results,
-            "router_ready": router is not None,
-            "timestamp": datetime.now().isoformat()
-        }
+        # 에러/실수 관련
+        if any(word in answer for word in ['죄송', '미안', '오류', '실패', '문제', '찾을 수 없', '어려움']):
+            return BYEOLI_IMAGES["sorry"]
         
-        logger.info(f"✅ 시스템 초기화 완료: {init_result['loaded_domains']} 도메인 로드")
-        return init_result
+        # 긍정적 감정
+        if any(word in answer for word in ['좋', '훌륭', '완료', '성공', '감사', '기쁨', '축하']):
+            return BYEOLI_IMAGES["happy"]
+        
+        # 안내/조언
+        if any(word in answer for word in ['안내', '문의', '연락', '담당', '도움', '방법', '절차']):
+            return BYEOLI_IMAGES["advicing"]
+        
+        # 업무 관련
+        if any(word in answer for word in ['업무', '작업', '처리', '진행', '개발', '분석']):
+            return BYEOLI_IMAGES["hardworking"]
+        
+        # 발표/설명
+        if any(word in answer for word in ['발표', '설명', '소개', '계획', '보고', '평가']):
+            return BYEOLI_IMAGES["presentating"]
+        
+        # 글쓰기/문서
+        if any(word in answer for word in ['작성', '문서', '보고서', '계획서', '평가서']):
+            return BYEOLI_IMAGES["writing"]
+        
+        # 날씨 관련
+        if any(word in answer for word in ['비', '우천', '강우']):
+            return BYEOLI_IMAGES["rainy"]
+        elif any(word in answer for word in ['눈', '설', '겨울']):
+            return BYEOLI_IMAGES["snowy"]
+        elif any(word in answer for word in ['맑', '화창', '좋은날씨']):
+            return BYEOLI_IMAGES["dry_day"]
+        
+        # 식사 관련
+        if any(word in answer for word in ['식단', '메뉴', '식사', '밥', '급식']):
+            return BYEOLI_IMAGES["hungry"]
+        
+        # 인사/마무리
+        if any(word in answer for word in ['안녕', '좋은하루', '수고', '마무리', '끝']):
+            return BYEOLI_IMAGES["good_night"]
+        
+        # 기본값 (조언하는 벼리)
+        return BYEOLI_IMAGES["advicing"]
         
     except Exception as e:
-        logger.error(f"❌ 시스템 초기화 실패: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
+        logger.error(f"이미지 선택 중 오류: {e}")
+        return BYEOLI_IMAGES["default"]
 
-@cache_data(ttl=300)  # 5분 캐시
-def get_system_health():
-    """시스템 상태 확인 (캐싱)"""
-    return index_health_check()
+# ================================================================
+# 3. 시스템 초기화 (Graceful Degradation)
+# ================================================================
+
+@st.cache_data(ttl=3600)  # 1시간 캐시
+def initialize_system() -> Dict[str, Any]:
+    """
+    시스템 초기화 (APP_MODE에 따른 Graceful Degradation)
+    
+    Returns:
+        Dict[str, Any]: 초기화 결과
+    """
+    try:
+        logger.info(f"🚀 벼리톡 시스템 초기화 시작 (모드: {APP_MODE})")
+        
+        # 1. 환경변수 검증
+        if not config.OPENAI_API_KEY:
+            error_msg = "OPENAI_API_KEY가 설정되지 않았습니다."
+            if IS_PRODUCTION:
+                return {"success": False, "error": error_msg, "mode": "fallback"}
+            else:
+                raise ValueError(f"개발 환경: {error_msg}")
+        
+        # 2. IndexManager 초기화 시도
+        try:
+            index_manager = get_index_manager()
+            preload_result = preload_all_indexes()
+            
+            if not preload_result["success"]:
+                logger.warning(f"IndexManager 초기화 실패: {preload_result['error']}")
+                if IS_PRODUCTION:
+                    return {
+                        "success": True, 
+                        "mode": "limited",
+                        "index_loaded": False,
+                        "warning": "일부 기능이 제한됩니다."
+                    }
+                else:
+                    raise Exception(f"개발 환경: IndexManager 실패 - {preload_result['error']}")
+            
+            # 3. Router 초기화
+            router = get_router()
+            
+            # 4. 건강 상태 체크
+            health_status = index_health_check()
+            
+            return {
+                "success": True,
+                "mode": "full",
+                "index_loaded": True,
+                "router_loaded": True,
+                "health_status": health_status,
+                "loaded_indexes": preload_result.get("loaded_indexes", []),
+                "performance": preload_result.get("performance", {})
+            }
+            
+        except Exception as e:
+            logger.error(f"시스템 초기화 중 오류: {e}")
+            if IS_PRODUCTION:
+                # 운영 환경: 제한적 서비스 제공
+                return {
+                    "success": True,
+                    "mode": "fallback",
+                    "index_loaded": False,
+                    "error": str(e),
+                    "warning": "현재 기본 서비스만 이용 가능합니다."
+                }
+            else:
+                # 개발 환경: 상세 에러 표시
+                return {
+                    "success": False, 
+                    "error": f"개발 환경 디버깅: {str(e)}\n{traceback.format_exc()}"
+                }
+                
+    except Exception as e:
+        error_msg = f"치명적 초기화 오류: {str(e)}"
+        logger.critical(error_msg)
+        return {"success": False, "error": error_msg}
+
+# ================================================================
+# 4. 세션 상태 관리 (UUID 기반)
+# ================================================================
 
 def initialize_session_state():
-    """세션 상태 초기화"""
-    if "conversation_context" not in st.session_state:
-        st.session_state.conversation_context = ConversationContext()
+    """세션 상태 초기화 (UUID 기반 conversation_id)"""
     
-    if "chat_history" not in st.session_state:
+    # 기본 세션 상태 초기화
+    if 'conversation_id' not in st.session_state:
+        st.session_state.conversation_id = str(uuid.uuid4())
+    
+    if 'context_manager' not in st.session_state:
+        st.session_state.context_manager = ContextManager()
+    
+    if 'chat_history' not in st.session_state:
         st.session_state.chat_history = []
     
-    if "performance_metrics" not in st.session_state:
-        st.session_state.performance_metrics = []
+    if 'conversation_context' not in st.session_state:
+        st.session_state.conversation_context = ConversationContext(
+            conversation_id=st.session_state.conversation_id
+        )
     
-    if "query_count" not in st.session_state:
-        st.session_state.query_count = 0
+    if 'system_status' not in st.session_state:
+        st.session_state.system_status = initialize_system()
+    
+    if 'performance_stats' not in st.session_state:
+        st.session_state.performance_stats = {
+            "total_queries": 0,
+            "avg_response_time": 0,
+            "success_rate": 100,
+            "last_query_time": None
+        }
+
+def reset_session():
+    """세션 초기화 (새 대화 시작)"""
+    st.session_state.conversation_id = str(uuid.uuid4())
+    st.session_state.chat_history = []
+    st.session_state.conversation_context = ConversationContext(
+        conversation_id=st.session_state.conversation_id
+    )
+    st.session_state.performance_stats = {
+        "total_queries": 0,
+        "avg_response_time": 0,
+        "success_rate": 100,
+        "last_query_time": None
+    }
+    logger.info(f"🔄 새로운 세션 시작: {st.session_state.conversation_id}")
 
 # ================================================================
-# 3. 대화 관리 함수들
-# ================================================================
-
-def update_conversation_context(user_text: str, assistant_response: str):
-    """대화 컨텍스트 업데이트"""
-    context = st.session_state.conversation_context
-    
-    # 메시지 추가
-    context.add_message(MessageRole.USER, user_text)
-    context.add_message(MessageRole.ASSISTANT, assistant_response)
-    
-    # 요약 갱신 필요 시 처리
-    if context.should_update_summary():
-        # 간단한 요약 생성 (실제로는 LLM 사용)
-        recent_messages = context.recent_messages[-4:]  # 최근 4턴
-        messages_text = " ".join([msg.text[:100] for msg in recent_messages])
-        context.summary = f"최근 대화: {messages_text[:500]}..."
-        logger.info("💭 대화 요약 갱신됨")
-
-def detect_follow_up(user_text: str) -> bool:
-    """후속 질문 감지 (간단한 휴리스틱)"""
-    follow_up_indicators = [
-        "그리고", "또한", "추가로", "더", "그것", "그거", "이것", "이거",
-        "위에서", "앞에서", "이전에", "아까", "방금", "더 자세히"
-    ]
-    
-    return any(indicator in user_text for indicator in follow_up_indicators)
-
-# ================================================================
-# 4. UI 렌더링 함수들
+# 5. UI 렌더링 함수들
 # ================================================================
 
 def render_header():
-    """헤더 렌더링"""
-    st.markdown('<h1 class="main-header">🌟 벼리 (BYEOLI)</h1>', unsafe_allow_html=True)
-    st.markdown(
-        '<p style="text-align: center; color: #666; font-size: 1.1rem;">'
-        '경상남도인재개발원 AI 어시스턴트</p>',
-        unsafe_allow_html=True
-    )
+    """메인 헤더 렌더링 (벼리 캐릭터 포함)"""
     
-    # 시스템 상태 표시
-    health = get_system_health()
-    overall_health = health.get('overall_health', 'unknown')
+    col1, col2 = st.columns([1, 8])
     
-    status_class = {
-        'healthy': 'status-healthy',
-        'degraded': 'status-degraded'
-    }.get(overall_health, 'status-error')
+    with col1:
+        # 메인 벼리 캐릭터 이미지
+        if Path("assets/Byeoli/advicing_Byeoli.png").exists():
+            st.image("assets/Byeoli/advicing_Byeoli.png", width=100)
+        else:
+            st.markdown("🌟", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown(
-            f'<div class="status-indicator {status_class}">'
-            f'시스템 상태: {overall_health.upper()}</div>',
-            unsafe_allow_html=True
-        )
+        st.markdown("""
+        <div class="main-header fade-in">
+            <h1>🌟 벼리톡@경상남도인재개발원</h1>
+            <p>경상남도인재개발원 AI 어시스턴트 - 교육에 대한 모든 궁금증, 벼리에게 물어보세요!</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 def render_sidebar():
-    """사이드바 렌더링"""
+    """사이드바 렌더링 (도움말 + 상태 정보)"""
+    
     with st.sidebar:
-        st.header("🛠️ 시스템 정보")
+        st.markdown("### 🎯 시스템 상태")
         
-        # 시스템 상태
-        health = get_system_health()
-        st.subheader("📊 상태 요약")
-        st.metric("로드된 도메인", health.get('loaded_domains', '0/0'))
-        st.metric("총 문서 수", health.get('total_documents', 0))
-        st.metric("오류 수", health.get('total_errors', 0))
+        # 시스템 상태 표시
+        status = st.session_state.system_status
+        if status["success"]:
+            if status.get("mode") == "full":
+                st.markdown('<div class="status-indicator status-healthy">🟢 정상 운영</div>', 
+                          unsafe_allow_html=True)
+            elif status.get("mode") == "limited":
+                st.markdown('<div class="status-indicator status-degraded">🟡 제한적 서비스</div>', 
+                          unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="status-indicator status-error">🔴 기본 서비스</div>', 
+                          unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="status-indicator status-error">🔴 시스템 오류</div>', 
+                      unsafe_allow_html=True)
         
-        # 도메인별 상태
-        st.subheader("📚 도메인별 상태")
-        domains = health.get('domains', {})
-        for domain, status in domains.items():
-            icon = "✅" if status['loaded'] else "❌"
-            doc_count = status['documents_count']
-            st.write(f"{icon} **{domain}**: {doc_count}개 문서")
+        # 성능 통계
+        stats = st.session_state.performance_stats
+        st.markdown("### 📊 성능 지표")
+        st.metric("총 질문 수", stats["total_queries"])
+        st.metric("평균 응답시간", f"{stats['avg_response_time']:.2f}초")
+        st.metric("성공률", f"{stats['success_rate']:.1f}%")
         
-        # 대화 통계
-        st.subheader("💬 대화 통계")
-        st.metric("질문 수", st.session_state.query_count)
-        st.metric("대화 턴", len(st.session_state.conversation_context.recent_messages))
+        # 대화 정보
+        st.markdown("### 💬 대화 정보")
+        st.write(f"**세션 ID**: `{st.session_state.conversation_id[:8]}...`")
+        st.write(f"**대화 횟수**: {len(st.session_state.chat_history) // 2}회")
         
-        # 성능 지표
-        if st.session_state.performance_metrics:
-            st.subheader("⚡ 성능 지표")
-            recent_metrics = st.session_state.performance_metrics[-5:]  # 최근 5개
-            avg_time = sum(m.get('total_time_ms', 0) for m in recent_metrics) / len(recent_metrics)
-            st.metric("평균 응답 시간", f"{avg_time:.0f}ms")
-        
-        # 리셋 버튼
-        if st.button("🔄 대화 초기화"):
-            st.session_state.conversation_context = ConversationContext()
-            st.session_state.chat_history = []
-            st.session_state.performance_metrics = []
+        # 세션 초기화 버튼
+        if st.button("🔄 새 대화 시작", use_container_width=True):
+            reset_session()
             st.rerun()
         
-        # 디버그 정보 (개발 모드)
-        if config.APP_MODE == "dev":
-            with st.expander("🔧 디버그 정보"):
-                st.json(health)
+        # 도움말
+        st.markdown("### 📚 사용 가이드")
+        
+        with st.expander("💡 질문 예시"):
+            st.markdown("""
+            **📊 만족도 조사**
+            - 2024년 교육과정 만족도는?
+            - 교과목 만족도 순위 보여줘
+            
+            **📋 규정 및 연락처**  
+            - 학칙 출석 규정 알려줘
+            - 총무담당 연락처는?
+            
+            **🍽️ 구내식당**
+            - 오늘 점심 메뉴 뭐야?
+            - 이번 주 식단표 보여줘
+            
+            **💻 사이버교육**
+            - 나라배움터 교육 일정은?
+            - 민간위탁 교육 목록은?
+            
+            **📄 교육계획 및 평가**
+            - 2025년 교육계획 요약해줘
+            - 2024년 교육성과는?
+            
+            **📢 공지사항**
+            - 최신 공지사항 있어?
+            - 벼리 캐릭터 소개해줘
+            """)
+        
+        with st.expander("⚙️ 시스템 정보"):
+            if status.get("loaded_indexes"):
+                st.write("**로드된 인덱스:**")
+                for idx in status["loaded_indexes"]:
+                    st.write(f"- {idx}")
+            
+            if status.get("performance"):
+                perf = status["performance"]
+                st.write(f"**초기화 시간**: {perf.get('total_time', 0):.2f}초")
+                st.write(f"**메모리 사용량**: {perf.get('memory_usage', 'N/A')}")
 
 def render_chat_history():
-    """채팅 기록 렌더링"""
-    st.subheader("💬 대화 기록")
+    """채팅 기록 표시 (말풍선 스타일)"""
     
-    chat_container = st.container()
-    with chat_container:
-        for i, message in enumerate(st.session_state.chat_history):
-            if message["role"] == "user":
-                st.markdown(
-                    f'<div class="user-message">'
-                    f'<strong>👤 사용자:</strong><br>{message["content"]}'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
-            else:
-                # 어시스턴트 응답
-                response_data = message.get("response_data", {})
-                answer = message["content"]
-                citations = response_data.get("citations", [])
-                performance = message.get("performance", {})
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+    
+    if not st.session_state.chat_history:
+        # 초기 환영 메시지
+        welcome_image = get_byeoli_image(answer="안녕하세요! 반가워요!")
+        
+        st.markdown(f"""
+        <div class="assistant-message fade-in">
+            <img src="{welcome_image}" class="byeoli-avatar" onerror="this.style.display='none'">
+            <strong>🌟 벼리:</strong><br>
+            안녕하세요! 경상남도인재개발원 AI 어시스턴트 벼리입니다! 🌟<br><br>
+            교육과정, 만족도 조사, 식단표, 공지사항 등 궁금한 것이 있으시면 언제든 물어보세요!<br>
+            어떤 도움이 필요하신가요?
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # 기존 대화 기록 표시
+        for i, msg in enumerate(st.session_state.chat_history):
+            if msg["role"] == "user":
+                st.markdown(f"""
+                <div class="user-message fade-in">
+                    <strong>👤 사용자:</strong><br>{msg["content"]}
+                </div>
+                """, unsafe_allow_html=True)
                 
-                st.markdown(
-                    f'<div class="assistant-message">'
-                    f'<strong>🌟 벼리:</strong><br>{answer}'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
+            else:  # assistant
+                # 응답에 따른 벼리 이미지 선택
+                byeoli_image = get_byeoli_image(answer=msg["content"])
                 
-                # Citation 표시
-                if citations:
-                    for citation in citations:
-                        source_id = citation.get("source_id", "알 수 없음")
+                # Citation 처리
+                citations_html = ""
+                if msg.get("citations"):
+                    citations_html = "<div class='citation-box'><strong>📚 참고자료:</strong><br>"
+                    for idx, citation in enumerate(msg["citations"][:3], 1):
+                        source = citation.get("source_id", "알 수 없음")
                         snippet = citation.get("snippet", "")
                         if snippet:
-                            st.markdown(
-                                f'<div class="citation-box">'
-                                f'<strong>📄 출처:</strong> {source_id}<br>'
-                                f'<em>"{snippet}"</em>'
-                                f'</div>',
-                                unsafe_allow_html=True
-                            )
+                            citations_html += f"{idx}. {source}: {snippet[:100]}...<br>"
+                        else:
+                            citations_html += f"{idx}. {source}<br>"
+                    citations_html += "</div>"
+                
+                # 성능 지표
+                performance_html = ""
+                if msg.get("elapsed_ms"):
+                    confidence = msg.get("confidence", 0)
+                    handler = msg.get("handler_id", "unknown")
+                    performance_html = f"""
+                    <div class="performance-metrics">
+                        ⏱️ {msg['elapsed_ms']}ms | 🎯 {confidence:.2f} | 🔧 {handler}
+                    </div>
+                    """
+                
+                st.markdown(f"""
+                <div class="assistant-message fade-in">
+                    <img src="{byeoli_image}" class="byeoli-avatar" onerror="this.style.display='none'">
+                    <strong>🌟 벼리:</strong><br>
+                    {msg["content"]}
+                    {citations_html}
+                    {performance_html}
+                </div>
+                """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
-def render_input_section():
+def render_input_section() -> Optional[str]:
     """입력 섹션 렌더링"""
-    st.subheader("💭 질문하기")
     
-    # 예시 질문들
-    example_questions = [
-        "2024년 교육과정 만족도 1위는?",
-        "학칙에서 징계 관련 규정 알려줘",
-        "오늘 구내식당 메뉴 뭐야?",
-        "사이버교육 일정 확인하고 싶어",
-        "2025년 교육계획 요약해줘",
-        "새로운 공지사항 있어?",
-        "총무담당 연락처 알려줘"
-    ]
+    st.markdown('<div class="input-section">', unsafe_allow_html=True)
     
-    # 예시 질문 버튼들
-    st.write("**💡 예시 질문들:**")
-    cols = st.columns(3)
-    for i, question in enumerate(example_questions):
-        with cols[i % 3]:
-            if st.button(f"💬 {question[:20]}...", key=f"example_{i}"):
-                return question
+    # 입력 폼
+    with st.form(key="chat_form", clear_on_submit=True):
+        col1, col2 = st.columns([4, 1])
+        
+        with col1:
+            user_input = st.text_input(
+                "🤔 무엇이 궁금하신가요?",
+                placeholder="예: 오늘 점심 메뉴 뭐야?, 2024년 교육 만족도는?, 학칙 출석 규정 알려줘",
+                label_visibility="collapsed"
+            )
+        
+        with col2:
+            submitted = st.form_submit_button("📤 전송", use_container_width=True)
     
-    # 메인 입력창
-    user_input = st.chat_input("경상남도인재개발원에 대해 무엇이든 물어보세요!")
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    return user_input
+    if submitted and user_input.strip():
+        return user_input.strip()
+    
+    return None
 
-# ================================================================
-# 5. 메인 처리 함수들
-# ================================================================
-
-async def process_query(user_text: str) -> Dict[str, Any]:
-    """
-    사용자 질문 처리
+def render_streaming_response(response_text: str, byeoli_image: str = None):
+    """단어 단위 스트리밍 응답 렌더링 (수정된 버전)"""
     
-    Args:
-        user_text: 사용자 입력 텍스트
-        
-    Returns:
-        Dict: 처리 결과 및 메타데이터
-    """
-    try:
-        # 후속 질문 감지
-        follow_up = detect_follow_up(user_text)
-        
-        # QueryRequest 생성
-        request = create_query_request(
-            text=user_text,
-            context=st.session_state.conversation_context,
-            follow_up=follow_up
-        )
-        
-        # 라우터를 통한 처리
-        router = get_router()
-        response = await router.route(request)
-        
-        # 성능 분석
-        performance = analyze_routing_performance(response)
-        
-        # 대화 컨텍스트 업데이트
-        update_conversation_context(user_text, response.answer)
-        
-        # 통계 업데이트
-        st.session_state.query_count += 1
-        st.session_state.performance_metrics.append(performance)
-        
-        return {
-            "success": True,
-            "response": response,
-            "performance": performance,
-            "follow_up_detected": follow_up
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ 쿼리 처리 실패: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "fallback_answer": "죄송합니다. 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
-        }
-
-def add_to_chat_history(user_text: str, result: Dict[str, Any]):
-    """채팅 기록에 추가"""
-    # 사용자 메시지 추가
-    st.session_state.chat_history.append({
-        "role": "user",
-        "content": user_text,
-        "timestamp": datetime.now().isoformat()
-    })
+    if not byeoli_image:
+        byeoli_image = get_byeoli_image(answer=response_text)
     
-    # 어시스턴트 응답 추가
-    if result["success"]:
-        response = result["response"]
-        st.session_state.chat_history.append({
-            "role": "assistant",
-            "content": response.answer,
-            "response_data": {
-                "citations": [citation.dict() for citation in response.citations],
-                "confidence": response.confidence,
-                "handler_id": response.handler_id,
-                "elapsed_ms": response.elapsed_ms
-            },
-            "performance": result["performance"],
-            "timestamp": datetime.now().isoformat()
-        })
-    else:
-        # 오류 시 fallback 답변
-        st.session_state.chat_history.append({
-            "role": "assistant",
-            "content": result.get("fallback_answer", "오류가 발생했습니다."),
-            "error": True,
-            "timestamp": datetime.now().isoformat()
-        })
-
-def render_streaming_response(response_text: str):
-    """스트리밍 응답 렌더링 (50토큰 단위)"""
     placeholder = st.empty()
     
-    # 50토큰 단위로 분할하여 점진적 출력
+    # 단어 단위로 분할하여 점진적 출력
     words = response_text.split()
     displayed_text = ""
     
-    for i in range(0, len(words), 50):  # 50단어씩 청크
-        chunk = " ".join(words[i:i+50])
-        displayed_text += chunk + " "
+    for i, word in enumerate(words):
+        displayed_text += word + " "
         
         with placeholder.container():
-            st.markdown(
-                f'<div class="assistant-message">'
-                f'<strong>🌟 벼리:</strong><br>{displayed_text}'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f"""
+            <div class="assistant-message fade-in">
+                <img src="{byeoli_image}" class="byeoli-avatar" onerror="this.style.display='none'">
+                <strong>🌟 벼리:</strong><br>
+                {displayed_text}<span class="typing-indicator">▊</span>
+            </div>
+            """, unsafe_allow_html=True)
         
-        time.sleep(0.1)  # 스트리밍 효과
+        time.sleep(0.05)  # 단어당 50ms 지연
+    
+    # 최종 응답 (타이핑 커서 제거)
+    with placeholder.container():
+        st.markdown(f"""
+        <div class="assistant-message fade-in">
+            <img src="{byeoli_image}" class="byeoli-avatar" onerror="this.style.display='none'">
+            <strong>🌟 벼리:</strong><br>
+            {displayed_text}
+        </div>
+        """, unsafe_allow_html=True)
 
 # ================================================================
-# 6. 메인 앱 로직
+# 6. 비즈니스 로직 (쿼리 처리)
+# ================================================================
+
+async def process_query(user_input: str) -> Dict[str, Any]:
+    """
+    사용자 쿼리 처리 (비동기)
+    
+    Args:
+        user_input: 사용자 입력
+        
+    Returns:
+        Dict[str, Any]: 처리 결과
+    """
+    start_time = time.time()
+    
+    try:
+        logger.info(f"🔍 쿼리 처리 시작: '{user_input}'")
+        
+        # 1. 쿼리 요청 객체 생성
+        query_request = QueryRequest(
+            text=user_input,
+            context=st.session_state.conversation_context,
+            trace_id=str(uuid.uuid4())[:8]
+        )
+        
+        # 2. 시스템 상태에 따른 처리 분기
+        system_status = st.session_state.system_status
+        
+        if not system_status["success"] or system_status.get("mode") == "fallback":
+            # Fallback 모드: 기본 응답만 제공
+            return await _handle_fallback_mode(user_input, start_time)
+        
+        # 3. 정상 모드: Router를 통한 처리
+        try:
+            router = get_router()
+            response = await asyncio.to_thread(router.route, query_request)
+            
+            # 4. 응답 처리 및 컨텍스트 업데이트
+            elapsed_time = time.time() - start_time
+            
+            # 대화 컨텍스트 업데이트
+            st.session_state.conversation_context.add_message(MessageRole.USER, user_input)
+            st.session_state.conversation_context.add_message(MessageRole.ASSISTANT, response.answer)
+            
+            # 성능 통계 업데이트
+            _update_performance_stats(elapsed_time, True)
+            
+            return {
+                "success": True,
+                "response": response,
+                "elapsed_time": elapsed_time,
+                "follow_up_detected": query_request.follow_up
+            }
+            
+        except asyncio.TimeoutError:
+            logger.warning("⏰ 쿼리 처리 타임아웃")
+            return await _handle_timeout_error(user_input, start_time)
+            
+        except Exception as e:
+            logger.error(f"❌ 쿼리 처리 중 오류: {e}")
+            return await _handle_processing_error(user_input, str(e), start_time)
+    
+    except Exception as e:
+        logger.error(f"💥 치명적 쿼리 처리 오류: {e}")
+        elapsed_time = time.time() - start_time
+        _update_performance_stats(elapsed_time, False)
+        
+        return {
+            "success": False,
+            "error": str(e),
+            "elapsed_time": elapsed_time
+        }
+
+async def _handle_fallback_mode(user_input: str, start_time: float) -> Dict[str, Any]:
+    """Fallback 모드 처리"""
+    
+    elapsed_time = time.time() - start_time
+    _update_performance_stats(elapsed_time, True)
+    
+    # 키워드 기반 기본 응답
+    fallback_responses = {
+        "인사": ["안녕", "안녕하세요", "반갑", "처음", "hello", "hi"],
+        "감사": ["감사", "고마워", "고맙", "thanks", "thank you"],
+        "식단": ["식단", "메뉴", "밥", "식사", "점심", "저녁"],
+        "연락처": ["연락처", "전화", "문의", "담당자"],
+        "교육": ["교육", "과정", "훈련", "수업", "강의"],
+        "만족도": ["만족도", "평가", "설문", "조사"]
+    }
+    
+    response_text = "안녕하세요! 현재 시스템 점검 중으로 기본 서비스만 제공됩니다."
+    
+    for category, keywords in fallback_responses.items():
+        if any(keyword in user_input for keyword in keywords):
+            if category == "인사":
+                response_text = "안녕하세요! 경상남도인재개발원 AI 어시스턴트 벼리입니다! 🌟"
+            elif category == "감사":
+                response_text = "천만에요! 언제든 도움이 필요하시면 말씀해 주세요! 😊"
+            elif category == "식단":
+                response_text = "구내식당 관련 문의는 총무담당(055-254-2096)으로 연락해 주세요."
+            elif category == "연락처":
+                response_text = "경상남도인재개발원 대표번호: 055-254-2000입니다."
+            elif category == "교육":
+                response_text = "교육 관련 문의는 교육기획담당(055-254-2052)으로 연락해 주세요."
+            elif category == "만족도":
+                response_text = "만족도 조사 관련은 평가분석담당(055-254-2022)으로 문의해 주세요."
+            break
+    
+    # 가상 응답 객체 생성
+    mock_response = type('MockResponse', (), {
+        'answer': response_text,
+        'citations': [],
+        'confidence': 0.5,
+        'handler_id': 'fallback',
+        'elapsed_ms': int(elapsed_time * 1000)
+    })()
+    
+    return {
+        "success": True,
+        "response": mock_response,
+        "elapsed_time": elapsed_time,
+        "mode": "fallback"
+    }
+
+async def _handle_timeout_error(user_input: str, start_time: float) -> Dict[str, Any]:
+    """타임아웃 에러 처리"""
+    
+    elapsed_time = time.time() - start_time
+    _update_performance_stats(elapsed_time, False)
+    
+    error_response = type('ErrorResponse', (), {
+        'answer': "죄송합니다. 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+        'citations': [],
+        'confidence': 0.0,
+        'handler_id': 'timeout',
+        'elapsed_ms': int(elapsed_time * 1000)
+    })()
+    
+    return {
+        "success": False,
+        "response": error_response,
+        "elapsed_time": elapsed_time,
+        "error": "timeout"
+    }
+
+async def _handle_processing_error(user_input: str, error_msg: str, start_time: float) -> Dict[str, Any]:
+    """처리 오류 핸들링"""
+    
+    elapsed_time = time.time() - start_time
+    _update_performance_stats(elapsed_time, False)
+    
+    if IS_PRODUCTION:
+        # 운영 환경: 친절한 에러 메시지
+        friendly_msg = "죄송합니다. 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주시거나, 담당부서(055-254-2011)로 문의해 주세요."
+    else:
+        # 개발 환경: 상세 에러 정보
+        friendly_msg = f"개발 환경 오류: {error_msg}"
+    
+    error_response = type('ErrorResponse', (), {
+        'answer': friendly_msg,
+        'citations': [],
+        'confidence': 0.0,
+        'handler_id': 'error',
+        'elapsed_ms': int(elapsed_time * 1000)
+    })()
+    
+    return {
+        "success": False,
+        "response": error_response,
+        "elapsed_time": elapsed_time,
+        "error": error_msg
+    }
+
+def _update_performance_stats(elapsed_time: float, success: bool):
+    """성능 통계 업데이트"""
+    
+    stats = st.session_state.performance_stats
+    
+    stats["total_queries"] += 1
+    stats["last_query_time"] = datetime.now()
+    
+    # 평균 응답시간 계산 (이동 평균)
+    if stats["avg_response_time"] == 0:
+        stats["avg_response_time"] = elapsed_time
+    else:
+        stats["avg_response_time"] = (stats["avg_response_time"] * 0.8 + elapsed_time * 0.2)
+    
+    # 성공률 계산 (최근 100개 기준)
+    if success:
+        stats["success_rate"] = min(stats["success_rate"] + 0.5, 100)
+    else:
+        stats["success_rate"] = max(stats["success_rate"] - 2, 0)
+
+def add_to_chat_history(user_input: str, result: Dict[str, Any]):
+    """채팅 기록에 추가"""
+    
+    # 사용자 메시지 추가
+    st.session_state.chat_history.append({
+        "role": "user",
+        "content": user_input,
+        "timestamp": datetime.now()
+    })
+    
+    # 어시스턴트 응답 추가
+    if result["success"] and "response" in result:
+        response = result["response"]
+        
+        # Citation 변환
+        citations = []
+        if hasattr(response, 'citations') and response.citations:
+            citations = [
+                {
+                    "source_id": getattr(citation, 'source_id', ''),
+                    "snippet": getattr(citation, 'snippet', '')
+                }
+                for citation in response.citations
+            ]
+        
+        st.session_state.chat_history.append({
+            "role": "assistant",
+            "content": response.answer,
+            "citations": citations,
+            "confidence": getattr(response, 'confidence', 0.0),
+            "handler_id": getattr(response, 'handler_id', 'unknown'),
+            "elapsed_ms": getattr(response, 'elapsed_ms', 0),
+            "timestamp": datetime.now()
+        })
+    else:
+        # 오류 응답
+        st.session_state.chat_history.append({
+            "role": "assistant", 
+            "content": result.get("error", "알 수 없는 오류가 발생했습니다."),
+            "citations": [],
+            "confidence": 0.0,
+            "handler_id": "error",
+            "elapsed_ms": int(result.get("elapsed_time", 0) * 1000),
+            "timestamp": datetime.now()
+        })
+
+# ================================================================
+# 7. 메인 앱 실행 로직
 # ================================================================
 
 def main():
     """메인 애플리케이션 로직"""
     
-    # 시스템 초기화
-    init_result = initialize_system()
-    if not init_result["success"]:
-        st.error(f"❌ 시스템 초기화 실패: {init_result.get('error', '알 수 없는 오류')}")
-        st.stop()
-    
-    # 세션 상태 초기화
-    initialize_session_state()
-    
-    # UI 렌더링
-    render_header()
-    render_sidebar()
-    
-    # 메인 콘텐츠 영역
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        # 채팅 기록 표시
-        render_chat_history()
+    try:
+        # 세션 상태 초기화
+        initialize_session_state()
         
-        # 입력 섹션
-        user_input = render_input_section()
+        # UI 렌더링
+        render_header()
+        render_sidebar()
         
-        # 사용자 입력 처리
-        if user_input:
-            # 실시간 처리 표시
-            with st.spinner("🤔 생각 중..."):
-                # 비동기 처리를 동기적으로 실행
-                result = asyncio.run(process_query(user_input))
+        # 메인 콘텐츠 영역
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # 채팅 기록 표시
+            render_chat_history()
             
-            # 채팅 기록에 추가
-            add_to_chat_history(user_input, result)
+            # 입력 섹션
+            user_input = render_input_section()
             
-            # 성공 시 스트리밍 효과로 마지막 응답 표시
-            if result["success"]:
-                st.success("✅ 응답 완료!")
-                if result.get("follow_up_detected"):
-                    st.info("🔄 후속 질문으로 감지되어 컨텍스트를 활용했습니다.")
-            else:
-                st.error("❌ 처리 중 오류가 발생했습니다.")
+            # 사용자 입력 처리
+            if user_input:
+                # 실시간 처리 표시
+                with st.spinner("🤔 벼리가 생각하고 있어요..."):
+                    # 비동기 처리를 동기적으로 실행
+                    result = asyncio.run(process_query(user_input))
+                
+                # 채팅 기록에 추가
+                add_to_chat_history(user_input, result)
+                
+                # 성공 시 스트리밍 효과로 마지막 응답 표시
+                if result["success"] and "response" in result:
+                    response = result["response"]
+                    
+                    # 상황에 맞는 벼리 이미지 선택
+                    byeoli_image = get_byeoli_image(response, response.answer)
+                    
+                    # 스트리밍 응답 표시
+                    st.success("✅ 응답 완료!")
+                    
+                    # 추가 정보 표시
+                    if result.get("follow_up_detected"):
+                        st.info("🔄 후속 질문으로 감지되어 대화 맥락을 활용했습니다.")
+                    
+                    if result.get("mode") == "fallback":
+                        st.warning("⚠️ 현재 기본 서비스 모드로 운영 중입니다.")
+                        
+                else:
+                    st.error("❌ 처리 중 오류가 발생했습니다.")
+                    if not IS_PRODUCTION and result.get("error"):
+                        st.code(result["error"])
+                
+                # 페이지 새로고침하여 최신 대화 표시
+                st.rerun()
+        
+        with col2:
+            # 시스템 상태가 불안정한 경우 알림
+            status = st.session_state.system_status
+            if not status["success"]:
+                st.error("🚨 시스템 오류")
+                st.write("관리자에게 문의해 주세요.")
+                if not IS_PRODUCTION:
+                    st.code(status.get("error", ""))
             
-            # 페이지 새로고침하여 최신 대화 표시
-            st.rerun()
+            elif status.get("mode") == "limited":
+                st.warning("⚠️ 제한된 서비스")
+                st.write(status.get("warning", ""))
+            
+            elif status.get("mode") == "fallback":
+                st.info("ℹ️ 기본 서비스 모드")
+                st.write("핵심 기능만 이용 가능합니다.")
     
-    with col2:
-        # 도움말 및 추가 정보
-        render_help_section()
-
-def render_help_section():
-    """도움말 섹션 렌더링"""
-    st.subheader("📚 사용 가이드")
-    
-    with st.expander("💡 이용 방법"):
-        st.markdown("""
-        **벼리에게 이런 질문을 해보세요:**
+    except Exception as e:
+        st.error("💥 애플리케이션 치명적 오류")
+        logger.critical(f"메인 앱 실행 오류: {e}")
         
-        **📊 만족도 조사**
-        - "2024년 교육과정 만족도 순위는?"
-        - "교과목 만족도 점수가 가장 높은 과정은?"
-        
-        **📋 규정 및 연락처**
-        - "학칙에서 출석 관련 규정 알려줘"
-        - "총무담당 연락처는?"
-        - "전결규정에 따른 결재 절차는?"
-        
-        **🍽️ 구내식당**
-        - "오늘 점심 메뉴 뭐야?"
-        - "이번 주 식단표 보여줘"
-        
-        **💻 사이버교육**
-        - "나라배움터 교육 일정은?"
-        - "민간위탁 사이버교육 목록 보여줘"
-        
-        **📄 교육계획 및 평가**
-        - "2025년 교육훈련계획 요약해줘"
-        - "2024년 교육운영 성과는?"
-        
-        **📢 공지사항**
-        - "최신 공지사항 있어?"
-        - "교육생 안내사항 알려줘"
-        """)
-    
-    with st.expander("🎯 주요 기능"):
-        st.markdown("""
-        **🚀 빠른 응답**: 1초 내 첫 답변 시작
-        **📚 신뢰할 수 있는 정보**: 공식 문서 기반 답변
-        **🔗 출처 제공**: 모든 답변에 근거 자료 표시
-        **💬 대화형**: 이전 대화 맥락을 이해하는 연속 대화
-        **🎯 정확한 라우팅**: 질문 유형에 맞는 전문 처리
-        """)
-    
-    with st.expander("📞 문의처"):
-        st.markdown("""
-        **경상남도인재개발원**
-        - 📍 주소: 경상남도 진주시 월아산로 2026
-        - ☎️ 대표전화: 055-254-2011 (인재개발지원과)
-        - ☎️ 교육문의: 055-254-2051 (인재양성과)
-        - 🌐 홈페이지: https://www.gyeongnam.go.kr/hrd/
-        
-        **부서별 연락처**
-        - 📋 총무담당: 055-254-2013
-        - 📊 평가분석담당: 055-254-2023  
-        - 📚 교육기획담당: 055-254-2053
-        - 👥 교육운영1담당: 055-254-2063
-        - 👥 교육운영2담당: 055-254-2073
-        - 💻 사이버담당: 055-254-2083
-        """)
-    
-    # 실시간 상태 표시
-    st.subheader("🔄 실시간 상태")
-    health = get_system_health()
-    
-    # 간단한 상태 지표
-    if health['overall_health'] == 'healthy':
-        st.success("🟢 모든 시스템 정상 동작")
-    elif health['overall_health'] == 'degraded':
-        st.warning("🟡 일부 시스템 제한적 동작")
-    else:
-        st.error("🔴 시스템 점검 필요")
-    
-    st.caption(f"최종 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        if not IS_PRODUCTION:
+            st.code(f"개발 환경 오류:\n{traceback.format_exc()}")
+        else:
+            st.write("시스템 관리자에게 문의해 주세요.")
+            st.write("**대표 연락처**: 055-254-2000")
 
 # ================================================================
-# 7. 앱 진입점
+# 8. 애플리케이션 진입점
 # ================================================================
 
 if __name__ == "__main__":
     try:
-        # 기본 로깅 설정
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
+        # 로깅 설정
+        if IS_PRODUCTION:
+            logging.getLogger().setLevel(logging.WARNING)
+        else:
+            logging.getLogger().setLevel(logging.INFO)
         
         # 메인 앱 실행
         main()
         
+    except KeyboardInterrupt:
+        logger.info("👋 사용자에 의해 앱 종료")
     except Exception as e:
-        st.error(f"❌ 애플리케이션 실행 중 오류 발생: {e}")
-        logger.critical(f"💥 앱 실행 실패: {e}")
+        logger.critical(f"💥 앱 시작 실패: {e}")
+        st.error("애플리케이션을 시작할 수 없습니다.")
         
-        # 오류 정보 표시
-        with st.expander("🔧 오류 상세 정보"):
-            st.code(f"""
-오류 타입: {type(e).__name__}
-오류 메시지: {str(e)}
-발생 시간: {datetime.now().isoformat()}
-
-문제가 지속되면 시스템 관리자에게 문의하세요.
-연락처: 055-254-2011
-            """)
-
-                
-                # 성능 지표 표시
-                if performance:
-                    confidence = performance.get("final_confidence", 0)
-                    elapsed_ms = performance.get("total_time_ms", 0)
-                    handler_id = performance.get("selected_handlers", ["unknown"])[0]
-                    
-                    st.markdown(
-                        f'<div class="performance-metrics">'
-                        f'💡 신뢰도: {confidence:.2f} | '
-                        f'⏱️ 응답시간: {elapsed_ms}ms | '
-                        f'🎯 핸들러: {handler_id}'
-                        f'</div>',
-                        unsafe_allow_html=True
+        if not IS_PRODUCTION:
+            st.code(traceback.format_exc())
