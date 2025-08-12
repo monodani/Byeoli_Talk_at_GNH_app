@@ -1,5 +1,5 @@
 # ================================================================
-# BYEOLI_TALK_AT_GNH_app - requirements.txt(Streamlit 배포 최적화)
+# BYEOLI_TALK_AT_GNHRD_app - requirements.txt(Streamlit 배포 최적화)
 # 벼리톡@경상남도인재개발원(경상남도인재개발원 RAG 챗봇)
 # ================================================================
 
@@ -77,3 +77,4 @@ python-dateutil==2.9.0        # 날짜 처리
 # 2. 모듈 import 확인: python test_integration.py  
 # 3. Streamlit 실행: streamlit run app.py
 # 4. 배포 전 용량 확인: pip list --format=freeze | wc -l
+
