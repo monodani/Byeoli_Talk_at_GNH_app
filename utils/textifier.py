@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - utils/textifier.py
+벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - utils/textifier.py (Pydantic v2 호환)
 
 문서 텍스트화 및 청킹 유틸리티:
 - PDF, CSV, 이미지 → 구조화된 텍스트 변환
@@ -9,7 +9,7 @@
 - 검색 최적화된 청킹
 
 주요 클래스:
-- TextChunk: 텍스트 청크 표준 모델
+- TextChunk: 텍스트 청크 표준 모델 (Pydantic v2)
 - DocumentProcessor: 문서 처리 기본 클래스  
 - PDFProcessor: PDF 텍스트 추출
 - CSVProcessor: CSV 데이터 처리
@@ -26,7 +26,9 @@ from io import StringIO
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Union
 from datetime import datetime, timezone
-from dataclasses import dataclass, field
+
+# 🔧 Pydantic v2 import
+from pydantic import BaseModel, Field, ConfigDict
 
 # 외부 라이브러리
 import tiktoken
@@ -38,23 +40,28 @@ import pytesseract
 logger = logging.getLogger(__name__)
 
 # ================================================================
-# 1. TextChunk 핵심 모델 (모든 로더/핸들러에서 사용)
+# 1. TextChunk 핵심 모델 (Pydantic v2 완전 호환)
 # ================================================================
 
-@dataclass
-class TextChunk:
+class TextChunk(BaseModel):
     """
-    텍스트 청크 표준 모델
+    텍스트 청크 표준 모델 (Pydantic v2 호환)
     
     모든 문서 처리기에서 공통으로 사용하는 텍스트 단위
     """
-    text: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    source_id: str = ""
-    chunk_index: int = 0
+    model_config = ConfigDict(
+        extra='forbid',
+        str_strip_whitespace=True,
+        validate_assignment=True
+    )
     
-    def __post_init__(self):
-        """후처리: 기본 메타데이터 설정"""
+    text: str = Field(..., min_length=1, max_length=50000, description="청크 텍스트")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="청크 메타데이터")
+    source_id: str = Field(default="", description="소스 식별자")
+    chunk_index: int = Field(default=0, ge=0, description="청크 인덱스")
+    
+    def model_post_init(self, __context: Any) -> None:
+        """Pydantic v2 방식 후처리: 기본 메타데이터 설정"""
         if not self.source_id and 'source_file' in self.metadata:
             self.source_id = self.metadata['source_file']
         
@@ -94,6 +101,18 @@ class TextChunk:
             source_id=data.get('source_id', ''),
             chunk_index=data.get('chunk_index', 0)
         )
+    
+    def __hash__(self) -> int:
+        """해시 값 계산 (캐시 키 용도)"""
+        return hash((self.text, str(sorted(self.metadata.items()))))
+    
+    def get_source_id(self) -> str:
+        """소스 ID 반환"""
+        return self.source_id or self.metadata.get('source_id', 'unknown')
+    
+    def get_cache_ttl(self) -> int:
+        """캐시 TTL 반환"""
+        return self.metadata.get('cache_ttl', 86400)  # 기본 24시간
 
 
 # ================================================================
@@ -191,245 +210,137 @@ class PDFProcessor(DocumentProcessor):
     
     def process(self, file_path: Path, **kwargs) -> List[TextChunk]:
         """PDF 파일을 처리하여 TextChunk 리스트 반환"""
-        logger.info(f"Processing PDF: {file_path}")
-        
-        try:
-            return self.process_file(file_path)
-        except Exception as e:
-            logger.error(f"Failed to process PDF {file_path}: {e}")
-            return []
-    
-    def process_file(self, pdf_path: Path) -> List[TextChunk]:
-        """PDF 파일 처리 (기존 메서드 이름 호환성)"""
         chunks = []
         
         try:
-            with open(pdf_path, 'rb') as file:
-                reader = PdfReader(file)
-                
-                logger.info(f"PDF pages: {len(reader.pages)}")
-                
-                for page_num, page in enumerate(reader.pages, 1):
-                    try:
-                        text = page.extract_text()
-                        if not text.strip():
-                            logger.warning(f"Empty text on page {page_num}")
-                            continue
-                        
-                        # 페이지별 메타데이터
-                        page_metadata = {
-                            'source_type': 'pdf',
-                            'source_file': pdf_path.name,
-                            'file_path': str(pdf_path),
-                            'page_number': page_num,
-                            'total_pages': len(reader.pages)
-                        }
-                        
-                        # 페이지별 청크 생성
-                        source_id = str(pdf_path.relative_to(self.root_dir)) + f"#page{page_num}"
-                        page_chunks = self._create_chunks(text, source_id, page_metadata)
-                        chunks.extend(page_chunks)
-                        
-                    except Exception as e:
-                        logger.warning(f"Failed to process page {page_num} of {pdf_path}: {e}")
-                        continue
-                
-        except Exception as e:
-            logger.error(f"Failed to read PDF {pdf_path}: {e}")
-            return []
-        
-        logger.info(f"Extracted {len(chunks)} chunks from {pdf_path}")
-        return chunks
-    
-    def extract_text_by_page(self, pdf_path: Path) -> List[Dict[str, Any]]:
-        """페이지별 텍스트 추출 (메타데이터 포함)"""
-        pages = []
-        
-        try:
-            with open(pdf_path, 'rb') as file:
-                reader = PdfReader(file)
-                
-                for page_num, page in enumerate(reader.pages, 1):
-                    text = page.extract_text()
+            reader = PdfReader(file_path)
+            total_pages = len(reader.pages)
+            
+            logger.info(f"📄 PDF 처리 시작: {file_path.name} ({total_pages} 페이지)")
+            
+            full_text = ""
+            page_texts = []
+            
+            # 페이지별 텍스트 추출
+            for page_num, page in enumerate(reader.pages, 1):
+                try:
+                    page_text = page.extract_text()
+                    if page_text.strip():
+                        page_texts.append(page_text)
+                        full_text += f"\n\n=== 페이지 {page_num} ===\n\n{page_text}"
                     
-                    pages.append({
-                        'page_number': page_num,
-                        'text': text,
-                        'char_count': len(text),
-                        'word_count': len(text.split()) if text else 0
-                    })
-        
+                except Exception as e:
+                    logger.warning(f"페이지 {page_num} 추출 실패: {e}")
+                    continue
+            
+            if not full_text.strip():
+                logger.warning(f"PDF에서 텍스트를 추출할 수 없습니다: {file_path}")
+                return chunks
+            
+            # 기본 메타데이터
+            base_metadata = {
+                'source_type': 'pdf',
+                'source_file': file_path.name,
+                'file_path': str(file_path),
+                'total_pages': total_pages,
+                'processing_date': datetime.now().isoformat()
+            }
+            
+            # 청킹 처리
+            source_id = f"pdf/{file_path.stem}"
+            chunks = self._create_chunks(full_text, source_id, base_metadata)
+            
+            logger.info(f"✅ PDF 처리 완료: {len(chunks)}개 청크 생성")
+            
         except Exception as e:
-            logger.error(f"Failed to extract PDF pages {pdf_path}: {e}")
+            logger.error(f"❌ PDF 처리 실패 {file_path}: {e}")
         
-        return pages
+        return chunks
 
 
 # ================================================================
-# 4. CSV 처리기 
+# 4. CSV 처리기
 # ================================================================
 
 class CSVProcessor(DocumentProcessor):
-    """CSV 파일 처리 - BaseLoader 호환성 강화"""
+    """CSV 데이터 처리기"""
     
-    def process(self, file_path: Path, schema_path: Optional[Path] = None) -> List[TextChunk]:
-        """CSV 파일을 텍스트 청크로 변환 (원본 row_data 보존)"""
-        logger.info(f"Processing CSV: {file_path}")
+    def process(self, file_path: Path, **kwargs) -> List[TextChunk]:
+        """CSV 파일을 처리하여 TextChunk 리스트 반환"""
+        chunks = []
         
         try:
-            chunks = []
-            source_id = str(file_path.relative_to(self.root_dir))
+            logger.info(f"📊 CSV 처리 시작: {file_path.name}")
             
-            # 스키마 로드 (있는 경우)
-            schema = None
-            if schema_path and schema_path.exists():
-                with open(schema_path, 'r', encoding='utf-8') as f:
-                    schema = json.load(f)
+            # 인코딩 감지 및 읽기
+            import chardet
+            with open(file_path, 'rb') as f:
+                raw_data = f.read()
+                encoding = chardet.detect(raw_data)['encoding']
             
-            # 인코딩 자동 감지 및 다중 시도
-            content = self._read_csv_with_encoding_detection(file_path)
-            if not content:
-                logger.error(f"Failed to read CSV file with any encoding: {file_path}")
-                return []
-            
-            # CSV 파싱
-            reader = csv.DictReader(StringIO(content))
-            
-            # 헤더 정규화
-            fieldnames = [name.strip() for name in reader.fieldnames] if reader.fieldnames else []
-            if not fieldnames:
-                logger.warning(f"No fieldnames found in CSV: {file_path}")
-                return []
-            
-            logger.info(f"CSV fieldnames: {fieldnames}")
-            
-            for row_num, row in enumerate(reader, 1):
-                try:
-                    # 원본 row 데이터 정리 (strip 적용)
-                    clean_row = {key.strip(): str(value).strip() for key, value in row.items() if key}
-                    
-                    # 빈 행 스킵
-                    if not any(clean_row.values()):
+            # CSV 읽기
+            with open(file_path, 'r', encoding=encoding, newline='') as f:
+                csv_reader = csv.DictReader(f)
+                fieldnames = csv_reader.fieldnames
+                
+                if not fieldnames:
+                    logger.warning(f"CSV 파일에 헤더가 없습니다: {file_path}")
+                    return chunks
+                
+                source_id = f"csv/{file_path.stem}"
+                
+                for row_num, row in enumerate(csv_reader, 1):
+                    try:
+                        # 빈 행 건너뛰기
+                        if not any(str(v).strip() for v in row.values()):
+                            continue
+                        
+                        # 행을 검색 가능한 텍스트로 변환
+                        row_text = self._row_to_text(row, fieldnames)
+                        if not row_text.strip():
+                            continue
+                        
+                        # 행별 메타데이터
+                        row_metadata = {
+                            "source_type": "csv",
+                            "source_file": file_path.name,
+                            "row_number": row_num,
+                            "fieldnames": fieldnames,
+                            "file_path": str(file_path),
+                            "row_data": dict(row),  # 원본 딕셔너리 저장
+                            "processing_date": datetime.now().isoformat()
+                        }
+                        
+                        # 행 단위로 청크화
+                        chunk = TextChunk(
+                            text=row_text,
+                            metadata=row_metadata,
+                            source_id=f"{source_id}#row{row_num}",
+                            chunk_index=row_num - 1
+                        )
+                        chunks.append(chunk)
+                        
+                    except Exception as e:
+                        logger.warning(f"행 {row_num} 처리 실패: {e}")
                         continue
-                    
-                    # 행을 검색 가능한 텍스트로 변환
-                    row_text = self._row_to_text(clean_row, fieldnames, schema)
-                    if not row_text.strip():
-                        logger.warning(f"Empty text generated for row {row_num} in {file_path}")
-                        continue
-                    
-                    # 행별 메타데이터 (★ 핵심: 원본 row_data 저장)
-                    row_metadata = {
-                        "source_type": "csv",
-                        "source_file": file_path.name,
-                        "row_number": row_num,
-                        "fieldnames": fieldnames,
-                        "file_path": str(file_path),
-                        "row_data": clean_row,  # ★ 원본 딕셔너리 저장
-                        "text_representation": row_text  # 검색용 텍스트도 별도 저장
-                    }
-                    
-                    # 스키마 정보도 메타데이터에 포함
-                    if schema:
-                        row_metadata["schema_applied"] = True
-                        row_metadata["schema_file"] = str(schema_path) if schema_path else None
-                    
-                    # 행 단위로 청크화 (보통 1행 = 1청크)
-                    row_source_id = f"{source_id}#row{row_num}"
-                    
-                    chunk = TextChunk(
-                        text=row_text,
-                        metadata=row_metadata,
-                        source_id=row_source_id,
-                        chunk_index=row_num - 1
-                    )
-                    chunks.append(chunk)
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to process row {row_num} of {file_path}: {e}")
-                    # 개별 행 실패 시에도 계속 진행
-                    continue
             
-            logger.info(f"Extracted {len(chunks)} chunks from {file_path}")
-            return chunks
+            logger.info(f"✅ CSV 처리 완료: {len(chunks)}개 청크 생성")
             
         except Exception as e:
-            logger.error(f"Failed to process CSV {file_path}: {e}")
-            return []
-    
-    def _read_csv_with_encoding_detection(self, file_path: Path) -> Optional[str]:
-        """다중 인코딩 시도로 CSV 파일 읽기"""
-        encodings = ['utf-8', 'cp949', 'euc-kr', 'utf-8-sig', 'latin-1']
+            logger.error(f"❌ CSV 처리 실패 {file_path}: {e}")
         
-        for encoding in encodings:
-            try:
-                with open(file_path, 'r', encoding=encoding) as f:
-                    content = f.read()
-                    logger.info(f"Successfully read {file_path} with encoding: {encoding}")
-                    return content
-            except UnicodeDecodeError:
-                logger.debug(f"Failed to read {file_path} with encoding: {encoding}")
-                continue
-            except Exception as e:
-                logger.warning(f"Unexpected error reading {file_path} with {encoding}: {e}")
-                continue
-        
-        return None
+        return chunks
     
-    def _row_to_text(self, row: Dict[str, str], fieldnames: List[str], schema: Optional[Dict] = None) -> str:
-        """CSV 행을 검색 가능한 텍스트로 변환 (스키마 활용 강화)"""
+    def _row_to_text(self, row: Dict[str, Any], fieldnames: List[str]) -> str:
+        """CSV 행을 검색 가능한 텍스트로 변환"""
         text_parts = []
         
         for field in fieldnames:
-            value = row.get(field, '').strip()
-            if not value:
-                continue
-                
-            # 스키마 기반 필드 정보 추출
-            field_info = None
-            if schema and 'properties' in schema:
-                field_info = schema['properties'].get(field, {})
-            
-            # 필드 설명 활용한 자연어 형태 생성
-            if field_info and field_info.get('description'):
-                # 스키마에 설명이 있으면 더 자연스러운 텍스트 생성
-                description = field_info['description']
-                text_parts.append(f"{description}: {value}")
-            else:
-                # 기본 형태
+            value = str(row.get(field, '')).strip()
+            if value and value.lower() not in ['', 'nan', 'null', 'none']:
                 text_parts.append(f"{field}: {value}")
         
         return " | ".join(text_parts)
-    
-    def validate_row_against_schema(self, row: Dict[str, str], schema: Dict) -> Tuple[bool, List[str]]:
-        """행 데이터의 스키마 유효성 검증"""
-        errors = []
-        
-        if 'required' in schema:
-            missing_fields = []
-            for required_field in schema['required']:
-                if required_field not in row or not row[required_field].strip():
-                    missing_fields.append(required_field)
-            
-            if missing_fields:
-                errors.append(f"Missing required fields: {missing_fields}")
-        
-        # 타입 검증 (기본적인 체크)
-        if 'properties' in schema:
-            for field, value in row.items():
-                if field in schema['properties'] and value.strip():
-                    field_schema = schema['properties'][field]
-                    
-                    # 숫자 타입 검증
-                    if field_schema.get('type') == 'number' or (
-                        isinstance(field_schema.get('type'), list) and 'number' in field_schema['type']
-                    ):
-                        try:
-                            float(value)
-                        except ValueError:
-                            errors.append(f"Field '{field}' should be numeric, got: {value}")
-        
-        return len(errors) == 0, errors
 
 
 # ================================================================
@@ -439,106 +350,82 @@ class CSVProcessor(DocumentProcessor):
 class ImageProcessor(DocumentProcessor):
     """이미지 OCR 처리기"""
     
-    def __init__(self, root_dir: Path):
-        super().__init__(root_dir)
-        self.supported_formats = ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']
-    
     def process(self, file_path: Path, **kwargs) -> List[TextChunk]:
-        """이미지 파일을 OCR로 처리하여 TextChunk 리스트 반환"""
-        logger.info(f"Processing image with OCR: {file_path}")
+        """이미지 파일을 OCR 처리하여 TextChunk 리스트 반환"""
+        chunks = []
         
         try:
-            text = self.extract_text_from_image(file_path)
-            if not text.strip():
-                logger.warning(f"No text extracted from image: {file_path}")
-                return []
+            logger.info(f"🖼️ 이미지 OCR 처리 시작: {file_path.name}")
             
-            # 이미지 메타데이터
-            image_metadata = {
+            # 이미지 열기
+            image = Image.open(file_path)
+            
+            # OCR 실행 (한국어 + 영어)
+            ocr_text = pytesseract.image_to_string(
+                image, 
+                lang='kor+eng',
+                config='--psm 6'  # 균일한 텍스트 블록 가정
+            )
+            
+            if not ocr_text.strip():
+                logger.warning(f"이미지에서 텍스트를 추출할 수 없습니다: {file_path}")
+                return chunks
+            
+            # 기본 메타데이터
+            base_metadata = {
                 'source_type': 'image',
                 'source_file': file_path.name,
                 'file_path': str(file_path),
-                'ocr_engine': 'tesseract'
+                'image_size': image.size,
+                'ocr_confidence': 'estimated',
+                'processing_date': datetime.now().isoformat()
             }
             
-            # 이미지 정보 추가
-            try:
-                with Image.open(file_path) as img:
-                    image_metadata.update({
-                        'image_width': img.width,
-                        'image_height': img.height,
-                        'image_mode': img.mode,
-                        'image_format': img.format
-                    })
-            except Exception as e:
-                logger.warning(f"Failed to get image info for {file_path}: {e}")
+            # 청킹 처리
+            source_id = f"image/{file_path.stem}"
+            chunks = self._create_chunks(ocr_text, source_id, base_metadata)
             
-            # 청크 생성
-            source_id = str(file_path.relative_to(self.root_dir))
-            chunks = self._create_chunks(text, source_id, image_metadata)
-            
-            logger.info(f"Extracted {len(chunks)} chunks from {file_path}")
-            return chunks
+            logger.info(f"✅ OCR 처리 완료: {len(chunks)}개 청크 생성")
             
         except Exception as e:
-            logger.error(f"Failed to process image {file_path}: {e}")
-            return []
-    
-    def extract_text_from_image(self, image_path: Path, lang: str = 'kor+eng') -> str:
-        """이미지에서 OCR로 텍스트 추출"""
-        try:
-            with Image.open(image_path) as img:
-                # OCR 실행
-                text = pytesseract.image_to_string(img, lang=lang)
-                
-                # 텍스트 정리
-                cleaned_text = self._clean_ocr_text(text)
-                return cleaned_text
-                
-        except Exception as e:
-            logger.error(f"OCR failed for {image_path}: {e}")
-            return ""
-    
-    def _clean_ocr_text(self, text: str) -> str:
-        """OCR 결과 텍스트 정리"""
-        if not text:
-            return ""
+            logger.error(f"❌ 이미지 처리 실패 {file_path}: {e}")
         
-        # 연속 공백/줄바꿈 정리
-        cleaned = re.sub(r'\s+', ' ', text)
-        
-        # 특수문자 정리 (기본적인 것만)
-        cleaned = re.sub(r'[^\w\s가-힣.,!?()/-]', '', cleaned)
-        
-        return cleaned.strip()
+        return chunks
 
 
 # ================================================================
-# 6. 팩토리 클래스
+# 6. 처리기 팩토리
 # ================================================================
 
 class ProcessorFactory:
-    """문서 처리기 팩토리"""
+    """파일 타입에 따라 적절한 처리기를 선택하는 팩토리"""
     
-    @staticmethod
-    def get_processor(file_path: Path, root_dir: Path) -> Optional[DocumentProcessor]:
-        """파일 확장자에 따른 적절한 처리기 반환"""
-        ext = file_path.suffix.lower()
+    _processors = {
+        '.pdf': PDFProcessor,
+        '.csv': CSVProcessor,
+        '.png': ImageProcessor,
+        '.jpg': ImageProcessor,
+        '.jpeg': ImageProcessor,
+        '.bmp': ImageProcessor,
+        '.tiff': ImageProcessor
+    }
+    
+    @classmethod
+    def get_processor(cls, file_path: Path, root_dir: Optional[Path] = None) -> Optional[DocumentProcessor]:
+        """파일 확장자에 따라 적절한 처리기 반환"""
+        suffix = file_path.suffix.lower()
         
-        if ext == '.pdf':
-            return PDFProcessor(root_dir)
-        elif ext == '.csv':
-            return CSVProcessor(root_dir)
-        elif ext in ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']:
-            return ImageProcessor(root_dir)
-        else:
-            logger.warning(f"Unsupported file type: {ext}")
-            return None
+        if suffix in cls._processors:
+            processor_class = cls._processors[suffix]
+            return processor_class(root_dir)
+        
+        logger.warning(f"지원되지 않는 파일 형식: {suffix}")
+        return None
     
-    @staticmethod
-    def process_file(file_path: Path, root_dir: Path, **kwargs) -> List[TextChunk]:
-        """파일을 자동으로 처리"""
-        processor = ProcessorFactory.get_processor(file_path, root_dir)
+    @classmethod
+    def process_file(cls, file_path: Path, root_dir: Optional[Path] = None, **kwargs) -> List[TextChunk]:
+        """파일을 자동으로 처리하여 TextChunk 리스트 반환"""
+        processor = cls.get_processor(file_path, root_dir)
         if processor:
             return processor.process(file_path, **kwargs)
         return []
@@ -549,7 +436,7 @@ class ProcessorFactory:
 # ================================================================
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> List[str]:
-    """텍스트를 청크로 분할 (간단 버전)"""
+    """텍스트를 지정된 크기로 청킹"""
     if len(text) <= chunk_size:
         return [text]
     
@@ -561,43 +448,34 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> List[st
         
         # 문장 경계에서 자르기 시도
         if end < len(text):
-            # 다음 문장 끝을 찾기
-            sentence_end = max(
-                text.rfind('.', start, end),
-                text.rfind('!', start, end),
-                text.rfind('?', start, end)
-            )
-            
-            if sentence_end > start + chunk_size // 2:
-                end = sentence_end + 1
+            # 다음 문장 끝 찾기
+            next_sentence = text.find('.', end)
+            if next_sentence != -1 and next_sentence - end < 100:
+                end = next_sentence + 1
         
-        chunks.append(text[start:end])
-        start = max(end - overlap, start + 1)  # 무한루프 방지
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        
+        start = end - overlap
     
     return chunks
 
 
-def estimate_reading_time(text: str, wpm: int = 200) -> float:
-    """텍스트 읽기 시간 추정 (분)"""
-    word_count = len(text.split())
-    return word_count / wpm
-
-
 def extract_key_phrases(text: str, max_phrases: int = 10) -> List[str]:
-    """핵심 구문 추출 (간단한 버전)"""
-    # 한국어 명사 패턴 (간단한 휴리스틱)
-    korean_noun_pattern = r'[가-힣]{2,}'
-    english_word_pattern = r'[A-Za-z]{3,}'
+    """텍스트에서 핵심 키워드 추출"""
+    # 간단한 키워드 추출 (실제로는 더 정교한 NLP 필요)
+    words = re.findall(r'\b\w+\b', text)
     
-    korean_words = re.findall(korean_noun_pattern, text)
-    english_words = re.findall(english_word_pattern, text)
+    # 불용어 제거 (간단한 버전)
+    stopwords = {'이', '그', '저', '것', '을', '를', '에', '의', '가', '은', '는', '와', '과', '도', '만'}
+    keywords = [word for word in words if len(word) > 1 and word not in stopwords]
     
-    # 빈도 계산
+    # 빈도 계산 및 상위 키워드 반환
     from collections import Counter
-    word_freq = Counter(korean_words + english_words)
+    word_counts = Counter(keywords)
     
-    # 상위 키워드 반환
-    return [word for word, _ in word_freq.most_common(max_phrases)]
+    return [word for word, count in word_counts.most_common(max_phrases)]
 
 
 # ================================================================
@@ -617,7 +495,7 @@ def test_textifier():
     
     print(f"✅ TextChunk 생성: {chunk.source_id}")
     print(f"   토큰 수: {chunk.estimate_tokens()}")
-    print(f"   해시: {chunk.metadata['text_hash']}")
+    print(f"   해시: {chunk.metadata.get('text_hash', 'N/A')}")
     
     # 청킹 테스트
     long_text = "이것은 긴 텍스트입니다. " * 100
@@ -637,7 +515,7 @@ if __name__ == "__main__":
     
     print("\n✅ utils/textifier.py 모듈 로드 완료")
     print("📦 사용 가능한 클래스:")
-    print("   - TextChunk: 텍스트 청크 모델")
+    print("   - TextChunk: 텍스트 청크 모델 (Pydantic v2)")
     print("   - DocumentProcessor: 문서 처리기 기본 클래스")
     print("   - PDFProcessor: PDF 처리")
     print("   - CSVProcessor: CSV 처리") 
