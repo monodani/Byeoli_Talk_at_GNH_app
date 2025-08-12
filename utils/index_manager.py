@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - index_manager.py (OpenAI 호환성 수정 버전)
+경상남도인재개발원 RAG 챗봇 - index_manager.py (OpenAI 호환성 수정 버전)
 
 IndexManager 싱글톤: 모든 벡터스토어 중앙 관리
 - 앱 기동 시 모든 FAISS 인덱스 사전 로드
@@ -100,13 +100,10 @@ class VectorStoreMetadata:
                 logger.warning("⚠️ OPENAI_API_KEY가 설정되지 않아 임베딩을 사용할 수 없습니다.")
                 return None
             
-            # 명시적 매개변수로 초기화 (proxies 오류 방지)
+            # 최소한의 매개변수로 안전한 초기화 (proxies 오류 방지)
             embeddings = OpenAIEmbeddings(
-                openai_api_key=api_key,
-                model=config.EMBEDDING_MODEL,
-                show_progress_bar=False,
-                max_retries=3,
-                request_timeout=30
+                api_key=api_key,
+                model=config.EMBEDDING_MODEL
             )
             
             logger.debug(f"✅ {self.domain} 도메인용 OpenAIEmbeddings 초기화 완료")
@@ -218,11 +215,8 @@ class IndexManager:
                 return None
             
             embeddings = OpenAIEmbeddings(
-                openai_api_key=api_key,
-                model=config.EMBEDDING_MODEL,
-                show_progress_bar=False,
-                max_retries=3,
-                request_timeout=30
+                api_key=api_key,
+                model=config.EMBEDDING_MODEL
             )
             
             logger.info(f"✅ 글로벌 OpenAIEmbeddings 초기화 완료: {config.EMBEDDING_MODEL}")
