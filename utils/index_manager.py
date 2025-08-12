@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - index_manager.py (OpenAI 호환성 수정 버전)
+벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - index_manager.py (OpenAI 호환성 수정 버전)
 
 IndexManager 싱글톤: 모든 벡터스토어 중앙 관리
 - 앱 기동 시 모든 FAISS 인덱스 사전 로드
@@ -384,7 +384,7 @@ class IndexManager:
         return status
 
 # ================================================================
-# 3. 싱글톤 인스턴스 팩터리
+# 3. 싱글톤 인스턴스 팩터리 및 호환성 함수
 # ================================================================
 
 _index_manager_instance = None
@@ -409,6 +409,27 @@ def preload_all_indexes():
     logger.info(f"📊 인덱스 로드 상태: {status['loaded_domains']}/{status['total_domains']}개 성공")
     
     return status["loaded_domains"] > 0  # 최소 1개라도 로드되면 성공
+
+def index_health_check() -> Dict[str, Any]:
+    """
+    IndexManager 헬스체크 (app.py 호환성 함수)
+    
+    Returns:
+        Dict[str, Any]: 시스템 상태 정보
+    """
+    try:
+        manager = get_index_manager()
+        return manager.health_check()
+    except Exception as e:
+        logger.error(f"❌ 헬스체크 실패: {e}")
+        return {
+            "total_domains": 0,
+            "loaded_domains": 0,
+            "failed_domains": 0,
+            "domains_detail": {},
+            "global_embeddings": False,
+            "error": str(e)
+        }
 
 # ================================================================
 # 4. 테스트 및 검증 
