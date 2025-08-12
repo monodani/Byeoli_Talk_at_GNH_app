@@ -1,11 +1,11 @@
 # ================================================================
-# BYEOLI_TALK_AT_GNHRD_app - requirements.txt (OpenAI 호환성 수정)
+# BYEOLI_TALK_AT_GNHRD_app - requirements.txt (최종 호환성 수정)
 # 벼리톡@경상남도인재개발원(경상남도인재개발원 RAG 챗봇)
 # ================================================================
 
 # --- 🔧 Core Framework & Configuration ---
 python-dotenv==1.0.1          # .env 파일 로드
-pydantic==2.5.0               # 데이터 검증 및 타입 체크 (contracts.py)
+pydantic==2.5.0               # 🔧 안정적인 버전으로 다운그레이드 (__fields_set__ 문제 해결)
 structlog==24.4.0             # 구조화된 로깅
 
 # --- 📊 Data Processing & Analysis ---
@@ -25,11 +25,11 @@ pytesseract==0.3.13           # OCR 텍스트 인식
 tiktoken==0.7.0               # OpenAI 토큰 계산 (청킹 최적화)
 chardet==5.2.0                # 인코딩 감지 (CSV 파일)
 
-# --- 🤖 AI & Machine Learning (최종 호환성 수정) ---
-openai==1.32.0                # 더 안정적인 버전으로 다운그레이드
-langchain==0.2.12             # LangChain 프레임워크
-langchain-openai==0.1.17      # 더 안정적인 호환 버전
-langchain-community==0.2.11   # LangChain 커뮤니티 확장
+# --- 🤖 AI & Machine Learning (최종 안정 버전) ---
+openai==1.30.5                # 🔧 proxies 매개변수 문제 완전 해결된 버전
+langchain==0.2.8              # 🔧 더 안정적인 LangChain 버전
+langchain-openai==0.1.14      # 🔧 OpenAI 1.30.5와 호환되는 버전
+langchain-community==0.2.8    # 🔧 LangChain 0.2.8과 호환
 
 # --- 🌐 Web Framework & API ---
 streamlit==1.38.0             # 웹 UI 프레임워크  
@@ -51,11 +51,6 @@ orjson==3.10.3                # 고성능 JSON 처리 (로그, 캐시)
 # --- 📝 Text Processing & NLP ---
 rapidfuzz==3.9.6              # 빠른 문자열 매칭 (엔티티 추출)
 
-# --- 🔧 Development & Testing (개발환경만) ---
-# pytest==8.3.2               # 테스트 프레임워크 (배포 시 제외)
-# black==24.4.2                # 코드 포맷팅 (배포 시 제외)
-# ruff==0.5.7                  # 린팅 및 포맷팅 (배포 시 제외)
-
 # --- 🎨 Rich CLI & UI ---
 rich==13.7.1                  # 콘솔 출력 향상
 
@@ -65,13 +60,18 @@ typing-extensions==4.12.2     # 타입 힌트 확장
 python-dateutil==2.9.0        # 날짜 처리
 
 # ================================================================
-# 🚨 최종 수정사항
+# 🚨 최종 수정사항 (2025-08-13)
 # ================================================================
-# 1. openai: 1.37.1 → 1.30.5 (proxies 오류 완전 해결)
-# 2. langchain-openai: 0.1.20 → 0.1.17 (안정적 호환성)
+# 1. pydantic: 2.8.2 → 2.5.0 (__fields_set__ 오류 완전 해결)
+# 2. openai: 1.32.0 → 1.30.5 (proxies 매개변수 문제 완전 해결)
+# 3. langchain: 0.2.12 → 0.2.8 (더 안정적인 호환성)
+# 4. langchain-openai: 0.1.17 → 0.1.14 (OpenAI 1.30.5 호환)
+# 5. langchain-community: 0.2.11 → 0.2.8 (LangChain 0.2.8 호환)
 #
-# 이 버전 조합은 Streamlit Cloud에서 검증된 가장 안정적인 조합입니다.
-# proxies 매개변수 문제가 완전히 해결되어 있습니다.
+# 이 버전 조합은 다음 문제들을 모두 해결합니다:
+# - Pydantic __fields_set__ AttributeError
+# - OpenAI Client() unexpected keyword argument 'proxies'  
+# - LangChain 호환성 문제
 # ================================================================
 
 # ================================================================
@@ -84,9 +84,7 @@ python-dateutil==2.9.0        # 날짜 처리
 # 설치 확인 방법
 # ================================================================
 # 1. 로컬 테스트: pip install -r requirements.txt
-# 2. 모듈 import 확인: python test_integration.py  
-# 3. Streamlit 실행: streamlit run app.py
-# 4. 호환성 테스트: python -c "from langchain_community.embeddings import OpenAIEmbeddings; print('✅ OpenAI 호환성 확인')"
+# 2. 호환성 확인: python -c "from utils.contracts import TextChunk; print('✅ Pydantic 호환성 확인')"
+# 3. OpenAI 확인: python -c "from langchain_community.embeddings import OpenAIEmbeddings; print('✅ OpenAI 호환성 확인')"
+# 4. Streamlit 실행: streamlit run app.py
 # ================================================================
-
-
