@@ -1,5 +1,5 @@
 - 작업폴더로 이동:
-cd C:\Users\Daniel\Desktop\Byeoli_Talk_at_GNH_app
+cd C:\Users\Daniel\OneDrive\Desktop\Byeoli_Talk_at_GNHRD_app
 
 - 가상환경 생성:
 py -m venv venv
@@ -10,3 +10,4 @@ venv\Scripts\activate
 - requirements.txt내 필요 패키지목록 설치:
 
 pip install -r requirements.txt
+
