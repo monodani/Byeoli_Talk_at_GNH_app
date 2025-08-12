@@ -7,7 +7,13 @@ py -m venv venv
 - 가상환경 활성화:
 venv\Scripts\activate
 
-- requirements.txt내 필요 패키지목록 설치:
-pip install -r requirements.txt
+- 가상환경 venv내 requirements.txt내 필요 패키지목록 설치:
+venv\Scripts\python -m pip install -r requirements.txt
 
+- 가상환경 venv내 data_ingestion.py 실행:
+venv\Scripts\python data_ingestion.py
+
+- py 사용 시기:
+py는 Windows에 기본으로 설치되는 Python Launcher입니다. 여러 파이썬 버전이 설치되어 있을 때, 특정 버전의 파이썬을 쉽게 실행하도록 돕는 도구입니다.
+언제 사용하나? 특정 파이썬 버전을 지정하여 스크립트를 실행할 때. (py -3.12 myscript.py), 가상 환경이 아닌, 시스템에 설치된 파이썬으로 스크립트를 실행하고 싶을 때며, 특정 파이썬 버전을 선택하기 편리합니다.
 
