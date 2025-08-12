@@ -5,7 +5,7 @@
 
 # --- 🔧 Core Framework & Configuration ---
 python-dotenv==1.0.1          # .env 파일 로드
-pydantic==2.8.2               # 데이터 검증 및 타입 체크 (contracts.py)
+pydantic==2.5.0               # 데이터 검증 및 타입 체크 (contracts.py)
 structlog==24.4.0             # 구조화된 로깅
 
 # --- 📊 Data Processing & Analysis ---
@@ -88,4 +88,5 @@ python-dateutil==2.9.0        # 날짜 처리
 # 3. Streamlit 실행: streamlit run app.py
 # 4. 호환성 테스트: python -c "from langchain_community.embeddings import OpenAIEmbeddings; print('✅ OpenAI 호환성 확인')"
 # ================================================================
+
 
