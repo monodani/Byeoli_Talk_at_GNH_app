@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - index_manager.py (OpenAI 호환성 수정 버전)
+벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - index_manager.py (OpenAI 호환성 수정 버전)
 
 IndexManager 싱글톤: 모든 벡터스토어 중앙 관리
 - 앱 기동 시 모든 FAISS 인덱스 사전 로드
@@ -390,19 +390,48 @@ def get_index_manager() -> IndexManager:
         _index_manager_instance = IndexManager()
     return _index_manager_instance
 
-def preload_all_indexes():
-    """모든 인덱스 사전 로드 (test_integration.py 호환)"""
+def preload_all_indexes() -> Dict[str, Any]:
+    """
+    모든 인덱스 사전 로드 (app.py 호환성 개선)
+    
+    Returns:
+        Dict[str, Any]: 로드 결과 정보
+    """
     logger.info("🚀 인덱스 사전 로드 시작")
-    manager = get_index_manager()
+    start_time = time.time()
     
-    # 재로드 실행
-    manager.load_all_domains()
-    
-    # 상태 체크
-    status = manager.health_check()
-    logger.info(f"📊 인덱스 로드 상태: {status['loaded_domains']}/{status['total_domains']}개 성공")
-    
-    return status["loaded_domains"] > 0  # 최소 1개라도 로드되면 성공
+    try:
+        manager = get_index_manager()
+        
+        # 재로드 실행
+        manager.load_all_domains()
+        
+        # 상태 체크
+        status = manager.health_check()
+        elapsed_time = time.time() - start_time
+        
+        logger.info(f"📊 인덱스 로드 상태: {status['loaded_domains']}/{status['total_domains']}개 성공")
+        
+        # app.py에서 기대하는 형식으로 반환
+        return {
+            "success": status["loaded_domains"] > 0,
+            "loaded_indexes": list(status["domains_detail"].keys()),
+            "performance": {
+                "load_time": elapsed_time,
+                "loaded_domains": status["loaded_domains"],
+                "total_domains": status["total_domains"]
+            },
+            "error": None if status["loaded_domains"] > 0 else "No domains loaded"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ 인덱스 사전 로드 실패: {e}")
+        return {
+            "success": False,
+            "loaded_indexes": [],
+            "performance": {},
+            "error": str(e)
+        }
 
 def index_health_check() -> Dict[str, Any]:
     """
