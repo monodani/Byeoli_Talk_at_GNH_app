@@ -233,7 +233,7 @@ class IndexManager:
 
     def _load_domain(self, domain: str):
         """
-        단일 도메인의 벡터스토어를 로드 (Pydantic v1/v2 호환성 수정)
+        단일 도메인의 벡터스토어를 로드 (Pydantic v1/v2 완전 호환성 처리)
         """
         meta = self.metadata[domain]
         
@@ -264,62 +264,22 @@ class IndexManager:
                     index_name=f"{domain}_index",
                     allow_dangerous_deserialization=True
                 )
+                logger.info(f"✅ 도메인 {domain} FAISS 인덱스 로드 완료")
             
-            # ✅ 문서 메타데이터 로드 (Pydantic v1/v2 호환성 처리)
-            try:
-                with open(meta.pkl_path, "rb") as f:
-                    loaded_data = pickle.load(f)
+            # ✅ 완전히 새로운 접근: Fallback 우선 전략
+            meta.documents = []
+            documents_loaded = False
+            
+            # 전략 1: FAISS docstore에서 직접 로드 (가장 안전)
+            if meta.vectorstore:
+                logger.info(f"🔄 {domain} FAISS docstore에서 문서 로드 시도")
+                try:
+                    raw_documents = list(meta.vectorstore.docstore._dict.values())
+                    logger.info(f"📄 {domain} FAISS docstore에서 {len(raw_documents)}개 문서 발견")
                     
-                    # Pydantic v1 → v2 변환 처리
-                    if isinstance(loaded_data, list):
-                        meta.documents = []
-                        for item in loaded_data:
-                            try:
-                                if hasattr(item, '__fields_set__'):
-                                    # Pydantic v1 객체 감지 → v2로 변환
-                                    logger.debug(f"🔄 Pydantic v1 객체를 v2로 변환: {type(item)}")
-                                    
-                                    # 기본 딕셔너리로 변환 후 재생성
-                                    if hasattr(item, 'dict'):
-                                        item_dict = item.dict()
-                                    elif hasattr(item, 'model_dump'):
-                                        item_dict = item.model_dump()
-                                    else:
-                                        # 직접 속성 추출
-                                        item_dict = {
-                                            'text': getattr(item, 'text', ''),
-                                            'metadata': getattr(item, 'metadata', {}),
-                                            'source_id': getattr(item, 'source_id', ''),
-                                            'chunk_index': getattr(item, 'chunk_index', 0)
-                                        }
-                                    
-                                    # 새로운 TextChunk 생성
-                                    new_chunk = TextChunk(**item_dict)
-                                    meta.documents.append(new_chunk)
-                                else:
-                                    # 이미 Pydantic v2 또는 호환 객체
-                                    meta.documents.append(item)
-                            except Exception as item_error:
-                                logger.warning(f"⚠️ 개별 문서 변환 실패: {item_error}, 건너뜀")
-                                continue
-                    else:
-                        meta.documents = loaded_data
-                        
-                logger.info(f"✅ 도메인 {domain} 문서 메타데이터 로드 완료: {len(meta.documents)}개")
-                
-            except Exception as pkl_error:
-                logger.error(f"❌ 도메인 {domain} PKL 로드 실패: {pkl_error}")
-                
-                # ✅ Fallback: FAISS docstore에서 직접 로드
-                if meta.vectorstore:
-                    logger.info(f"🔄 {domain} FAISS docstore에서 문서 복구 시도")
-                    try:
-                        # FAISS의 docstore에서 문서 목록을 직접 가져옵니다.
-                        raw_documents = list(meta.vectorstore.docstore._dict.values())
-                        meta.documents = []
-                        
-                        for i, doc in enumerate(raw_documents):
-                            # LangChain Document → TextChunk 변환
+                    for i, doc in enumerate(raw_documents):
+                        try:
+                            # LangChain Document → TextChunk 안전 변환
                             chunk = TextChunk(
                                 text=doc.page_content,
                                 metadata=doc.metadata,
@@ -327,15 +287,114 @@ class IndexManager:
                                 chunk_index=i
                             )
                             meta.documents.append(chunk)
-                        
-                        logger.info(f"✅ {domain} FAISS에서 {len(meta.documents)}개 문서 복구 완료")
-                    except Exception as fallback_error:
-                        logger.error(f"❌ {domain} FAISS 문서 복구도 실패: {fallback_error}")
-                        meta.documents = []
-                else:
-                    meta.documents = []
+                        except Exception as chunk_error:
+                            logger.warning(f"⚠️ 청크 변환 실패 (인덱스 {i}): {chunk_error}")
+                            continue
+                    
+                    if meta.documents:
+                        documents_loaded = True
+                        logger.info(f"✅ {domain} FAISS에서 {len(meta.documents)}개 문서 로드 완료")
+                    
+                except Exception as faiss_error:
+                    logger.warning(f"⚠️ {domain} FAISS docstore 로드 실패: {faiss_error}")
             
-            # BM25 인덱스 로드
+            # 전략 2: pickle 파일 호환성 로드 (안전하게 시도)
+            if not documents_loaded and meta.pkl_path.exists():
+                logger.info(f"🔄 {domain} pickle 파일에서 문서 로드 시도")
+                try:
+                    with open(meta.pkl_path, "rb") as f:
+                        loaded_data = pickle.load(f)
+                    
+                    logger.info(f"📄 {domain} pickle에서 데이터 타입: {type(loaded_data)}")
+                    
+                    if isinstance(loaded_data, list):
+                        converted_documents = []
+                        for i, item in enumerate(loaded_data):
+                            try:
+                                # 여러 방법으로 TextChunk 변환 시도
+                                converted_chunk = None
+                                
+                                # 방법 1: 이미 TextChunk인 경우
+                                if isinstance(item, TextChunk):
+                                    converted_chunk = item
+                                    logger.debug(f"📝 아이템 {i}: 이미 TextChunk")
+                                
+                                # 방법 2: Pydantic v1 객체 변환
+                                elif hasattr(item, '__fields_set__') or hasattr(item, '__dict__'):
+                                    logger.debug(f"📝 아이템 {i}: Pydantic v1 객체 감지, 변환 시도")
+                                    
+                                    # 속성 추출 시도
+                                    item_dict = {}
+                                    if hasattr(item, 'dict'):
+                                        try:
+                                            item_dict = item.dict()
+                                        except:
+                                            pass
+                                    
+                                    if not item_dict and hasattr(item, '__dict__'):
+                                        item_dict = item.__dict__.copy()
+                                        # Pydantic v1 특수 필드 제거
+                                        item_dict.pop('__fields_set__', None)
+                                        item_dict.pop('__config__', None)
+                                    
+                                    # 기본값 보장
+                                    safe_dict = {
+                                        'text': item_dict.get('text', getattr(item, 'text', '')),
+                                        'metadata': item_dict.get('metadata', getattr(item, 'metadata', {})),
+                                        'source_id': item_dict.get('source_id', getattr(item, 'source_id', '')),
+                                        'chunk_index': item_dict.get('chunk_index', getattr(item, 'chunk_index', i))
+                                    }
+                                    
+                                    converted_chunk = TextChunk(**safe_dict)
+                                
+                                # 방법 3: 딕셔너리인 경우
+                                elif isinstance(item, dict):
+                                    logger.debug(f"📝 아이템 {i}: 딕셔너리 형태")
+                                    safe_dict = {
+                                        'text': item.get('text', ''),
+                                        'metadata': item.get('metadata', {}),
+                                        'source_id': item.get('source_id', ''),
+                                        'chunk_index': item.get('chunk_index', i)
+                                    }
+                                    converted_chunk = TextChunk(**safe_dict)
+                                
+                                # 방법 4: 문자열인 경우
+                                elif isinstance(item, str):
+                                    logger.debug(f"📝 아이템 {i}: 문자열 형태")
+                                    converted_chunk = TextChunk(
+                                        text=item,
+                                        metadata={},
+                                        source_id=f'{domain}_{i}',
+                                        chunk_index=i
+                                    )
+                                
+                                if converted_chunk:
+                                    converted_documents.append(converted_chunk)
+                                    
+                            except Exception as item_error:
+                                logger.warning(f"⚠️ 아이템 {i} 변환 실패: {item_error}, 건너뜀")
+                                continue
+                        
+                        if converted_documents:
+                            meta.documents = converted_documents
+                            documents_loaded = True
+                            logger.info(f"✅ {domain} pickle에서 {len(meta.documents)}개 문서 변환 완료")
+                    
+                except Exception as pkl_error:
+                    logger.warning(f"⚠️ {domain} pickle 로드 실패: {pkl_error}")
+            
+            # 최종 안전장치: 기본 더미 문서 생성
+            if not documents_loaded:
+                logger.warning(f"⚠️ {domain} 모든 문서 로드 실패, 더미 문서 생성")
+                dummy_chunk = TextChunk(
+                    text=f"{domain} 도메인의 기본 정보입니다.",
+                    metadata={'domain': domain, 'type': 'dummy'},
+                    source_id=f'{domain}_dummy',
+                    chunk_index=0
+                )
+                meta.documents = [dummy_chunk]
+            
+            # BM25 인덱스 로드 (더 안전하게)
             if meta.bm25_path.exists():
                 try:
                     with open(meta.bm25_path, 'rb') as f:
@@ -344,12 +403,12 @@ class IndexManager:
                             meta.bm25, _ = bm25_data
                         else:
                             meta.bm25 = bm25_data
-                    logger.info(f"✅ 도메인 {domain} BM25 인덱스 로드 완료.")
+                    logger.info(f"✅ 도메인 {domain} BM25 인덱스 로드 완료")
                 except Exception as bm25_error:
                     logger.warning(f"⚠️ 도메인 {domain} BM25 로드 실패: {bm25_error}")
                     meta.bm25 = None
             else:
-                logger.warning(f"⚠️ 도메인 {domain} BM25 인덱스 파일이 없습니다.")
+                logger.debug(f"⚠️ 도메인 {domain} BM25 인덱스 파일이 없습니다.")
                 meta.bm25 = None
             
             meta.last_loaded = datetime.now()
@@ -373,9 +432,23 @@ class IndexManager:
             logger.error(f"❌ 도메인 {domain} 로드 실패: {e}")
             logger.debug(f"상세 오류:\n{traceback.format_exc()}")
             
-            # Graceful Degradation: 부분 로드라도 시도
-            meta.vectorstore = None
-            meta.bm25 = None
+            # 최종 Graceful Degradation
+            try:
+                meta.vectorstore = None
+                meta.bm25 = None
+                # 최소한 더미라도 제공
+                if not meta.documents:
+                    dummy_chunk = TextChunk(
+                        text=f"{domain} 도메인에 대한 정보를 찾을 수 없습니다.",
+                        metadata={'domain': domain, 'type': 'error_fallback'},
+                        source_id=f'{domain}_error',
+                        chunk_index=0
+                    )
+                    meta.documents = [dummy_chunk]
+                    logger.info(f"🔄 {domain} 최소 더미 문서 생성 완료")
+            except Exception as fallback_error:
+                logger.error(f"❌ {domain} 최종 폴백도 실패: {fallback_error}")
+
 
 
     def load_all_domains(self):
