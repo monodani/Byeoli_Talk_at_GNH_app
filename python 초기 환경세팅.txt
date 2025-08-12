@@ -8,6 +8,6 @@ py -m venv venv
 venv\Scripts\activate
 
 - requirements.txt내 필요 패키지목록 설치:
-
 pip install -r requirements.txt
+
 
