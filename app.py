@@ -499,7 +499,8 @@ def initialize_session_state():
     
     if 'conversation_context' not in st.session_state:
         st.session_state.conversation_context = ConversationContext(
-            conversation_id=st.session_state.conversation_id
+            conversation_id=st.session_state.conversation_id,
+            session_id=str(uuid.uuid4())
         )
     
     if 'system_status' not in st.session_state:
@@ -518,7 +519,8 @@ def reset_session():
     st.session_state.conversation_id = str(uuid.uuid4())
     st.session_state.chat_history = []
     st.session_state.conversation_context = ConversationContext(
-        conversation_id=st.session_state.conversation_id
+        conversation_id=st.session_state.conversation_id,
+        session_id=str(uuid.uuid4())
     )
     
     # ContextManager 컨텍스트도 초기화
