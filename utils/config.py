@@ -15,6 +15,7 @@ Configuration Module: 환경변수 로드/검증 및 전역 설정
 """
 
 import os
+import streamlit as st
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -46,11 +47,11 @@ class AppConfig:
     """애플리케이션 전역 설정 (context_manager.py 호환성 보장)"""
     
     # API 키
-    OPENAI_API_KEY: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
+    OPENAI_API_KEY : Optional[str] = None
     ANTHROPIC_API_KEY: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     
     # 모델 설정 (.env.example과 통일)
-    OPENAI_MODEL_MAIN: str = field(default_factory=lambda: os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL_MAIN", "gpt-4o")))
+    OPENAI_MODEL_MAIN: str = field(default_factory=lambda: os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL_MAIN", "gpt-4o-mini")))
     OPENAI_MODEL_ROUTER: str = field(default_factory=lambda: os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL_ROUTER", "gpt-4o-mini")))
     
     # 임베딩 설정
@@ -64,9 +65,9 @@ class AppConfig:
     CHUNK_OVERLAP: int = field(default_factory=lambda: int(os.getenv("CHUNK_OVERLAP", "100")))
     
     # 라우팅 설정 (.env.example과 통일)
-    ROUTER_CANDIDATE_SELECTION_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("ROUTER_CANDIDATE_SELECTION_TIMEOUT", "0.4")))
-    ROUTER_HANDLER_EXECUTION_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("ROUTER_HANDLER_EXECUTION_TIMEOUT", "1.1")))
-    ROUTER_TOTAL_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("TIMEBOX_S", os.getenv("ROUTER_TOTAL_TIMEOUT", "1.5"))))
+    ROUTER_CANDIDATE_SELECTION_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("ROUTER_CANDIDATE_SELECTION_TIMEOUT", "3.0")))
+    ROUTER_HANDLER_EXECUTION_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("ROUTER_HANDLER_EXECUTION_TIMEOUT", "12.0")))
+    ROUTER_TOTAL_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("TIMEBOX_S", os.getenv("ROUTER_TOTAL_TIMEOUT", "15.0"))))
     
     # ✅ 핸들러 도메인 목록 (index_manager.py 호환성을 위해 추가)
     HANDLERS: List[str] = field(default_factory=lambda: [
@@ -114,16 +115,40 @@ class AppConfig:
     
     def __post_init__(self):
         """설정 검증 및 디렉터리 생성"""
+        self._load_api_key() # <-- 추가된 메서드 호출        
         self._validate_api_keys()
         self._create_directories()
         self._setup_logging()
         self._validate_settings()
+
+    def _load_api_key(self):
+        """
+        OPENAI_API_KEY를 로드 (Streamlit Secrets -> 환경변수)
+        """
+        # Streamlit Secrets에서 API 키 로드 시도
+        try:
+            if "OPENAI_API_KEY" in st.secrets:
+                self.OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+                os.environ["OPENAI_API_KEY"] = self.OPENAI_API_KEY
+                print("✅ OPENAI_API_KEY를 Streamlit Secrets에서 로드했습니다.")
+                return
+        except Exception as e:
+            # st.secrets 접근 실패 (로컬 환경)
+            print(f"⚠️ Streamlit Secrets 접근 실패: {e}")
+        
+        # .env 파일에서 환경변수 로드 시도 (로컬 환경용)
+        load_dotenv(ROOT_DIR / ".env")
+        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+        if self.OPENAI_API_KEY:
+            print("✅ OPENAI_API_KEY를 .env 파일에서 로드했습니다.")
+        else:
+            print("⚠️ OPENAI_API_KEY가 설정되지 않았습니다.")
     
     def _validate_api_keys(self):
         """필수 API 키 검증 (개선된 로직)"""
         if not self.OPENAI_API_KEY:
             if self.APP_MODE == "prod":
-                raise ValueError("❌ OPENAI_API_KEY는 운영환경에서 필수입니다. .env 파일에 설정해주세요.")
+                raise ValueError("❌ OPENAI_API_KEY는 운영환경에서 필수입니다. .env 파일 또는 Streamlit Secrets에 설정해주세요.")
             else:
                 print("⚠️ OPENAI_API_KEY가 설정되지 않았습니다. 개발 모드에서는 일부 기능이 제한됩니다.")
     
