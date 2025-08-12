@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-벼리톡@경상남도인재개발원 (경상남도 RAG 챗봇) - contracts.py (Pydantic v2 호환성 수정)
+벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - contracts.py (Pydantic v2 호환성 수정)
 
 시스템 전체의 인터페이스 계약을 정의하는 Pydantic 모델 모음
 - QueryRequest: 사용자 요청 표준화
@@ -16,7 +16,7 @@ from enum import Enum
 from typing import List, Dict, Any, Optional, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -85,16 +85,16 @@ class TextChunk(BaseModel):
 
 class ChatTurn(BaseModel):
     """개별 대화 턴"""
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(
+        extra='forbid',
+        json_encoders={
+            datetime: lambda v: v.isoformat()
+        }
+    )
     
     role: MessageRole = Field(..., description="메시지 역할 (user/assistant)")
     text: str = Field(..., min_length=1, description="메시지 텍스트")
     ts: datetime = Field(default_factory=datetime.now, description="타임스탬프")
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
 
 class ConversationContext(BaseModel):
@@ -107,14 +107,16 @@ class ConversationContext(BaseModel):
     entities: List[str] = Field(default_factory=list, description="추출된 핵심 엔티티")
     updated_at: datetime = Field(default_factory=datetime.now, description="최종 갱신 시간")
     
-    @validator('recent_messages')
+    @field_validator('recent_messages')
+    @classmethod
     def validate_message_limit(cls, v):
         """최근 메시지 6턴 제한"""
         if len(v) > 6:
             return v[-6:]  # 최신 6개만 유지
         return v
     
-    @validator('summary')
+    @field_validator('summary')
+    @classmethod
     def validate_summary_length(cls, v):
         """요약 길이 제한 (대략 1,000토큰)"""
         if len(v) > 4000:  # 한글 기준 4,000자 ≈ 1,000토큰
@@ -163,7 +165,8 @@ class QueryRequest(BaseModel):
     routing_hints: Dict[str, Any] = Field(default_factory=dict, description="라우팅 힌트 (선택적)")
     timestamp: datetime = Field(default_factory=datetime.now, description="요청 시간")
     
-    @validator('text')
+    @field_validator('text')
+    @classmethod
     def validate_text_content(cls, v):
         """질문 텍스트 검증"""
         v = v.strip()
@@ -198,7 +201,8 @@ class HandlerResponse(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="추가 메타데이터")
     processing_time: float = Field(default=0.0, ge=0.0, description="처리 시간 (초)")
     
-    @validator('citations')
+    @field_validator('citations')
+    @classmethod
     def validate_citations_limit(cls, v):
         """인용 개수 제한 (최대 5개)"""
         if len(v) > 5:
