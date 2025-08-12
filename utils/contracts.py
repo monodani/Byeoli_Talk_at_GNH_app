@@ -16,6 +16,26 @@ class MessageRole(str, Enum):
     ASSISTANT = "assistant"
     SYSTEM = "system"
 
+class HandlerType(str, Enum):
+    """핸들러 타입"""
+    SATISFACTION = "satisfaction"
+    GENERAL = "general"
+    PUBLISH = "publish"
+    CYBER = "cyber"
+    MENU = "menu"
+    NOTICE = "notice"
+    FALLBACK = "fallback"
+    
+    @classmethod
+    def get_all_domains(cls) -> List[str]:
+        """모든 도메인 리스트 반환 (fallback 제외)"""
+        return [h.value for h in cls if h != cls.FALLBACK]
+    
+    @classmethod
+    def is_valid_domain(cls, domain: str) -> bool:
+        """유효한 도메인인지 확인"""
+        return domain in [h.value for h in cls]
+
 class ChatTurn(BaseModel):
     """대화 턴"""
     model_config = ConfigDict(extra='allow')
@@ -325,6 +345,36 @@ class SystemStatus(BaseModel):
     @property
     def loaded_domains(self) -> List[str]:
         return [d for d, loaded in self.domains.items() if loaded]
+
+class SearchResult(BaseModel):
+    """검색 결과"""
+    model_config = ConfigDict(extra='allow')
+    
+    text: str
+    score: float = Field(ge=0.0, le=1.0)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    source_id: Optional[str] = None
+    
+    def to_citation(self) -> Citation:
+        """Citation으로 변환"""
+        return Citation(
+            source_id=self.source_id or "unknown",
+            text=self.text,
+            relevance_score=self.score,
+            metadata=self.metadata
+        )
+
+class DomainConfig(BaseModel):
+    """도메인 설정"""
+    model_config = ConfigDict(extra='allow')
+    
+    name: str
+    description: str
+    confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    max_results: int = Field(default=5, ge=1, le=20)
+    chunk_size: int = Field(default=1000, ge=100, le=5000)
+    overlap: int = Field(default=100, ge=0, le=500)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 # 유틸리티 함수
 def validate_schema(data: Dict[str, Any], model_class: type[BaseModel]) -> tuple[bool, Optional[str]]:
