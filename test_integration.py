@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BYEOLI_TALK_AT_GNH_app - 최종 통합 테스트 스크립트
+BYEOLI_TALK_AT_GNHRD_app - 최종 통합 테스트 스크립트
 
 98% 완성된 시스템의 마지막 2% 검증:
 1. 개별 모듈 import 테스트
@@ -24,7 +24,7 @@ from typing import Dict, List, Any, Optional
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-print("🌟 BYEOLI_TALK_AT_GNH_app - 최종 통합 테스트")
+print("🌟 BYEOLI_TALK_AT_GNHRD_app - 최종 통합 테스트")
 print("=" * 60)
 
 # ================================================================
@@ -463,7 +463,7 @@ async def test_performance_goals():
 
 async def run_integration_tests():
     """전체 통합 테스트 실행"""
-    print("🚀 BYEOLI_TALK_AT_GNH_app 최종 통합 테스트 시작!")
+    print("🚀 BYEOLI_TALK_AT_GNHRD_app 최종 통합 테스트 시작!")
     print(f"📅 테스트 시작 시간: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     
     overall_start = time.time()
@@ -534,7 +534,7 @@ async def run_integration_tests():
     # 최종 판정
     if success_rate >= 0.8:  # 80% 이상 성공
         print(f"\n🎉 통합 테스트 전체 성공!")
-        print(f"BYEOLI_TALK_AT_GNH_app 시스템이 정상 작동합니다.")
+        print(f"BYEOLI_TALK_AT_GNHRD_app 시스템이 정상 작동합니다.")
         return True
     else:
         print(f"\n⚠️ 통합 테스트 부분 실패")
@@ -564,4 +564,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n💥 테스트 실행 중 예외 발생: {e}")
         print(f"Traceback: {traceback.format_exc()}")
+
         sys.exit(1)
