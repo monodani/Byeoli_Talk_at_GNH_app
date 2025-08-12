@@ -155,6 +155,24 @@ class HandlerResponse(BaseModel):
             "processing_time": f"{self.processing_time:.2f}s" if self.processing_time else "N/A"
         }
 
+class HandlerCandidate(BaseModel):
+    """핸들러 후보"""
+    model_config = ConfigDict(extra='allow')
+    
+    domain: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: Optional[str] = None
+    is_rule_based: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    def __lt__(self, other: "HandlerCandidate") -> bool:
+        """정렬을 위한 비교 연산자"""
+        return self.confidence < other.confidence
+    
+    def __eq__(self, other: "HandlerCandidate") -> bool:
+        """동등성 비교"""
+        return self.domain == other.domain and self.confidence == other.confidence
+
 class RouterDecision(BaseModel):
     """라우터 결정"""
     model_config = ConfigDict(extra='allow')
@@ -163,7 +181,32 @@ class RouterDecision(BaseModel):
     secondary_domain: Optional[str] = None
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: Optional[str] = None
+    candidates: List["HandlerCandidate"] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    @classmethod
+    def from_candidates(cls, candidates: List["HandlerCandidate"]) -> "RouterDecision":
+        """후보 리스트로부터 결정 생성"""
+        if not candidates:
+            return cls(
+                primary_domain="fallback",
+                confidence=0.0,
+                candidates=[]
+            )
+        
+        # 신뢰도 기준 정렬
+        sorted_candidates = sorted(candidates, key=lambda x: x.confidence, reverse=True)
+        
+        primary = sorted_candidates[0]
+        secondary = sorted_candidates[1] if len(sorted_candidates) > 1 else None
+        
+        return cls(
+            primary_domain=primary.domain,
+            secondary_domain=secondary.domain if secondary else None,
+            confidence=primary.confidence,
+            reasoning=primary.reasoning,
+            candidates=sorted_candidates
+        )
 
 class IndexMetadata(BaseModel):
     """인덱스 메타데이터"""
@@ -182,6 +225,31 @@ class IndexMetadata(BaseModel):
         if isinstance(v, str):
             return datetime.fromisoformat(v)
         return v
+
+class RoutingResult(BaseModel):
+    """라우팅 결과"""
+    model_config = ConfigDict(extra='allow')
+    
+    decision: RouterDecision
+    responses: List[HandlerResponse]
+    selected_response: Optional[HandlerResponse] = None
+    processing_time: float = 0.0
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    def get_best_response(self) -> Optional[HandlerResponse]:
+        """최적 응답 선택"""
+        if self.selected_response:
+            return self.selected_response
+        
+        if not self.responses:
+            return None
+        
+        # 신뢰도 기준 정렬
+        valid_responses = [r for r in self.responses if r.success]
+        if not valid_responses:
+            return self.responses[0]  # 모두 실패시 첫 번째 반환
+        
+        return max(valid_responses, key=lambda x: x.confidence)
 
 class SystemStatus(BaseModel):
     """시스템 상태"""
