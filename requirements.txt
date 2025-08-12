@@ -1,5 +1,5 @@
 # ================================================================
-# 최종 안정화 버전 (의존성 충돌 완전 해결)
+# 벼리톡@경상남도인재개발원 - requirements.txt (충돌 완전 해결)
 # ================================================================
 
 # 🌐 웹 프레임워크
@@ -9,9 +9,9 @@ streamlit
 pandas
 numpy
 
-# 🤖 AI (완전 호환 버전)
-openai==1.25.0
-pydantic==2.4.0
+# 🤖 AI (단일 버전 명시)
+openai==1.30.5
+pydantic>=2.4.0,<3.0.0
 
 # 🔍 검색
 faiss-cpu
@@ -27,52 +27,30 @@ python-dotenv
 requests
 rich
 
-# 🧠 LangChain (최소 버전)
+# 🧠 LangChain (호환 버전)
 langchain-core
-langchain-openai==0.1.10
+langchain-openai==0.1.14
 
 # 📊 기타 필수
 scikit-learn
 tiktoken
 chardet
 
-# ================================================================
-# 사용법:
-# 1. pip install -r requirements_minimal.txt
-# 2. 점진적 추가: pip install langchain langchain-community
-# ================================================================# ================================================================
-# 최소 필수 패키지 (의존성 충돌 시 임시 사용)
-# ================================================================
-
-# 🌐 웹 프레임워크
-streamlit
-
-# 📊 데이터 처리
-pandas
-numpy
-
-# 🤖 AI (최소 버전)
-openai>=1.30.0
-pydantic>=2.0.0
-
-# 🔍 검색
-faiss-cpu
-rank-bm25
-
-# 📄 파일 처리
-pypdf
-pytesseract
-Pillow
-
-# 🔧 유틸리티
-python-dotenv
-requests
-rich
+# 📝 추가 필수 패키지
+structlog
+jsonschema
+tenacity
+cachetools
+watchdog
+orjson
+rapidfuzz
+python-multipart
+typing-extensions
+python-dateutil
 
 # ================================================================
-# 사용법:
-# pip install -r requirements_minimal.txt
-# 
-# 이후 점진적으로 추가:
-# pip install langchain langchain-openai langchain-community
+# 🚨 중요 수정사항:
+# 1. openai 버전 통일 (1.30.5로 고정)
+# 2. pydantic 범위 지정으로 호환성 확보
+# 3. 필수 패키지 모두 포함
 # ================================================================
