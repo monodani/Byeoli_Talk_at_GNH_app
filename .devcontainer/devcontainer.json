@@ -1,19 +1,212 @@
 {
-  "name": "My Python Project",
-  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "name": "🌟 벼리톡@경상남도인재개발원 (경남인재개발원 RAG 챗봇)",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11-bullseye",
+  
   "features": {
     "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.11"
+      "version": "3.11",
+      "installJupyterlab": false,
+      "configureGitAliases": true
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "18",
+      "nodeGypDependencies": true
+    },
+    "ghcr.io/devcontainers/features/git:1": {
+      "ppa": true,
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true,
+      "installOhMyZsh": true,
+      "upgradePackages": true
     }
   },
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-kor fonts-nanum && make setup",
+
+  "containerEnv": {
+    "PYTHONPATH": "/workspaces/Byeoli_Talk_at_GNH_app",
+    "PYTHONUNBUFFERED": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "STREAMLIT_SERVER_PORT": "8501",
+    "STREAMLIT_SERVER_ADDRESS": "0.0.0.0",
+    "STREAMLIT_BROWSER_GATHER_USAGE_STATS": "false"
+  },
+
+  "onCreateCommand": [
+    "sudo apt-get update",
+    "sudo apt-get install -y tesseract-ocr tesseract-ocr-kor tesseract-ocr-script-hang fonts-nanum fonts-noto-cjk",
+    "sudo apt-get install -y poppler-utils libpoppler-cpp-dev",
+    "sudo apt-get install -y tree htop curl wget",
+    "echo '✅ 시스템 패키지 설치 완료'"
+  ],
+
+  "postCreateCommand": [
+    "pip install --upgrade pip setuptools wheel",
+    "pip install -r requirements.txt",
+    "make setup",
+    "echo '🎉 벼리톡 개발환경 구축 완료!'"
+  ],
+
+  "postStartCommand": [
+    "echo '🌟 벼리톡 개발환경 시작'",
+    "echo '📋 사용 가능한 명령어:'",
+    "echo '  make help              - 모든 명령어 보기'",
+    "echo '  make test-quick        - 빠른 연결 테스트'",
+    "echo '  make build-index       - 인덱스 빌드'",
+    "echo '  make run               - Streamlit 앱 실행'",
+    "echo '  streamlit run app.py   - 앱 직접 실행'",
+    "echo ''",
+    "echo '🔧 필요한 환경변수:'",
+    "echo '  OPENAI_API_KEY         - OpenAI API 키'",
+    "echo ''",
+    "echo '📂 프로젝트 구조:'",
+    "make show-structure"
+  ],
+
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
+        "ms-python.pylint",
         "ms-python.black-formatter",
-        "ms-python.vscode-pylance"
-      ]
+        "ms-python.isort",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "charliermarsh.ruff",
+        "ms-vscode.makefile-tools",
+        "redhat.vscode-yaml",
+        "ms-vscode.vscode-json",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "ms-vscode.live-server",
+        "bradlc.vscode-tailwindcss",
+        "streetsidesoftware.code-spell-checker",
+        "ms-vscode.hexeditor",
+        "alefragnani.project-manager",
+        "eamodio.gitlens",
+        "ms-vscode.remote-repositories"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false,
+        "python.linting.ruffEnabled": true,
+        "python.formatting.provider": "black",
+        "python.formatting.blackArgs": ["--line-length=120"],
+        "python.isortArgs": ["--profile", "black"],
+        "python.analysis.typeCheckingMode": "basic",
+        "python.analysis.autoImportCompletions": true,
+        "python.analysis.autoSearchPaths": true,
+        "python.terminal.activateEnvironment": false,
+        
+        "files.autoSave": "afterDelay",
+        "files.autoSaveDelay": 1000,
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        
+        "editor.formatOnSave": true,
+        "editor.formatOnPaste": true,
+        "editor.rulers": [88, 120],
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.wordWrap": "on",
+        "editor.minimap.enabled": true,
+        "editor.suggestSelection": "first",
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": true,
+          "source.fixAll": true
+        },
+
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.fontSize": 14,
+        "terminal.integrated.cursorBlinking": true,
+        
+        "makefile.configureOnOpen": true,
+        
+        "json.schemas": [
+          {
+            "fileMatch": ["schemas/*.schema.json"],
+            "url": "https://json-schema.org/draft/2020-12/schema"
+          }
+        ],
+
+        "files.associations": {
+          "*.env.example": "dotenv",
+          "Makefile": "makefile",
+          "*.schema.json": "json"
+        },
+
+        "files.exclude": {
+          "**/__pycache__": true,
+          "**/*.pyc": true,
+          "**/vectorstores/**": true,
+          "**/cache/**": true,
+          "**/logs/**": true,
+          "**/.pytest_cache": true
+        },
+
+        "search.exclude": {
+          "vectorstores/": true,
+          "cache/": true,
+          "logs/": true,
+          "**/__pycache__": true,
+          "**/*.pyc": true
+        }
+      }
     }
-  }
+  },
+
+  "forwardPorts": [8501, 8502, 8503],
+  "portsAttributes": {
+    "8501": {
+      "label": "🌟 벼리톡 메인 앱",
+      "onAutoForward": "notify"
+    },
+    "8502": {
+      "label": "🔧 개발 서버",
+      "onAutoForward": "ignore"
+    },
+    "8503": {
+      "label": "📊 테스트 서버",
+      "onAutoForward": "ignore"
+    }
+  },
+
+  "mounts": [
+    "source=${localWorkspaceFolder}/.env,target=/workspaces/Byeoli_Talk_at_GNH_app/.env,type=bind,consistency=cached",
+    "type=volume,source=vscode-extensions,target=/root/.vscode-server/extensions"
+  ],
+
+  "remoteUser": "root",
+  "overrideCommand": false,
+  "shutdownAction": "stopContainer",
+
+  "otherVersions": [
+    {
+      "version": "python-3.10",
+      "image": "mcr.microsoft.com/devcontainers/python:3.10-bullseye"
+    },
+    {
+      "version": "python-3.12", 
+      "image": "mcr.microsoft.com/devcontainers/python:3.12-bullseye"
+    }
+  ],
+
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/Byeoli_Talk_at_GNH_app,type=bind,consistency=cached",
+  "workspaceFolder": "/workspaces/Byeoli_Talk_at_GNH_app",
+
+  "initializeCommand": [
+    "echo '🚀 벼리톡 개발환경 초기화 시작...'",
+    "echo '📋 필요 조건 확인:'",
+    "echo '  ✅ Docker Desktop 실행 중'",
+    "echo '  ✅ VS Code Dev Containers 확장 설치됨'",
+    "echo '  ⚠️  .env 파일에 OPENAI_API_KEY 설정 필요'"
+  ],
+
+  "updateContentCommand": [
+    "pip install --upgrade pip",
+    "pip install -r requirements.txt --upgrade",
+    "echo '🔄 의존성 업데이트 완료'"
+  ]
 }
