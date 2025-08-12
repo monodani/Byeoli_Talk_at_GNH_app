@@ -27,9 +27,9 @@ chardet==5.2.0                # 인코딩 감지 (CSV 파일)
 
 # --- 🤖 AI & Machine Learning (최종 안정 버전) ---
 openai==1.32.0                # 🔧 proxies 매개변수 문제 완전 해결된 버전
-langchain==0.2.8              # 🔧 더 안정적인 LangChain 버전
+langchain==0.2.7              # 🔧 더 안정적인 LangChain 버전
 langchain-openai==0.1.14      # 🔧 OpenAI 1.30.5와 호환되는 버전
-langchain-community==0.2.8    # 🔧 LangChain 0.2.8과 호환
+langchain-community==0.2.7    # 🔧 LangChain 0.2.8과 호환
 
 # --- 🌐 Web Framework & API ---
 streamlit==1.38.0             # 웹 UI 프레임워크  
@@ -88,4 +88,5 @@ python-dateutil==2.9.0        # 날짜 처리
 # 3. OpenAI 확인: python -c "from langchain_community.embeddings import OpenAIEmbeddings; print('✅ OpenAI 호환성 확인')"
 # 4. Streamlit 실행: streamlit run app.py
 # ================================================================
+
 
