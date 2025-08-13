@@ -18,6 +18,7 @@
 import asyncio
 import logging
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
@@ -181,19 +182,25 @@ class Router:
         
         try:
             # 1단계: Top-2 핸들러 선정 (3.0s)
-            selected_handlers = await self._select_top_handlers(user_input) # ✅ 수정: user_input을 전달
+            selected_handlers = await self._select_top_handlers(user_input, context)
             selection_time = time.time() - start_time
             
             if selection_time > self.TIMEBOX_SELECTION:
                 logger.warning(f"⚠️ 핸들러 선정 시간 초과: {selection_time:.3f}s > {self.TIMEBOX_SELECTION}s")
+
+            # 2단계 직전, request 만들기 전에 (selected_handlers 구한 뒤)
+            trace_id = kwargs.get("trace_id") or str(uuid.uuid4())
+            primary_domain = selected_handlers[0].handler_id if selected_handlers else HandlerType.FALLBACK
+
             
             # ✅ 2단계: 선정된 핸들러들을 위해 QueryRequest 객체 생성
             primary_domain = selected_handlers[0].handler_id if selected_handlers else HandlerType.FALLBACK
             request = QueryRequest(
-                query=user_input,
+                text=user_input,
                 domain=primary_domain.value, # ✅ 수정: 이제 domain에 올바른 값이 할당됨
                 context=context,
-                **kwargs
+                follow_up=kwargs.get("follow_up", False),
+                trace_id=trace_id
             )
             
             # 3단계: 선정된 핸들러 병렬 실행 (12.0s)
@@ -218,7 +225,8 @@ class Router:
                 "timebox_compliance": metrics.within_timebox
             })
             
-            logger.info(f"✅ 라우팅 완료 [{request.trace_id}]: {total_time:.3f}s (타임박스: {'✓' if metrics.within_timebox else '✗'})")
+            logger.info(f"✅ 라우팅 완료 [{getattr(request, 'trace_id', 'no-trace')}]"
+                        f": {total_time:.3f}s (타임박스: {'✓' if metrics.within_timebox else '✗'})")
             return final_response
             
         except Exception as e:
@@ -228,7 +236,7 @@ class Router:
             # Fallback 핸들러로 안전망 제공
             return await self._emergency_fallback(user_input, str(e)) # ✅ 수정: user_input을 전달
     
-    async def _select_top_handlers(self, query: str) -> List[HandlerCandidate]: # ✅ 수정: request 대신 query를 받음
+    async def _select_top_handlers(self, query: str, context: Optional[ConversationContext] = None) -> List[HandlerCandidate]:
         """
         하이브리드 방식으로 Top-2 핸들러 선정
         
@@ -403,9 +411,11 @@ class Router:
             if fallback:
                 # ✅ Fallback 핸들러를 위해 임시 QueryRequest 객체 생성
                 fallback_request = QueryRequest(
-                    query=query,
-                    domain=HandlerType.FALLBACK.value,
                     text=query,
+                    domain=HandlerType.FALLBACK.value,
+                    context=None,
+                    follow_up=False,
+                    teace_id=str(uuid.uuid4()),
                     metadata={"error": error_reason}
                 )
                 response = await asyncio.to_thread(fallback.handle, fallback_request)
