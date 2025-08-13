@@ -4,7 +4,7 @@
 실제로 필요한 클래스만 포함
 """
 
-from typing import List, Dict, Any, Optional, Literal
+from typing import Optional, List, Dict, Any, Union, Literal
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict, field_validator
@@ -50,7 +50,7 @@ class QueryRequest(BaseModel):
     
     query: str
     domain: Optional[str] = None
-    context: Optional[Union[ConversationContext, Dict[str, Any]]]
+    context: Optional[Union[ConversationContext, Dict[str, Any]]] = None # ✅ 수정: Union과 Optional 사용
     metadata: Dict[str, Any] = Field(default_factory=dict)
     max_results: int = Field(default=5, ge=1, le=20)
     confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
