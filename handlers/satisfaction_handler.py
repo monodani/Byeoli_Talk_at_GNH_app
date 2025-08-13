@@ -139,14 +139,14 @@ class satisfaction_handler(base_handler):
             # 만족도 특화 후처리
             if response.confidence >= self.confidence_threshold:
                 # 응답에 만족도 도메인 힌트 추가
-                if "점" in response.answer and any(keyword in request.text for keyword in ["만족도", "점수", "평가"]):
+                if "점" in response.answer and any(keyword in request.query for keyword in ["만족도", "점수", "평가"]):
                     # 만족도 점수가 포함된 답변인 경우 단위 표준화
                     response.answer = self._standardize_satisfaction_scores(response.answer)
                 
                 logger.info(f"✅ 만족도 답변 생성 완료 (confidence={response.confidence:.3f})")
             else:
                 # 낮은 컨피던스인 경우 재질문 유도
-                response.answer = self._generate_reask_response(request.text, response.confidence)
+                response.answer = self._generate_reask_response(request.query, response.confidence)
                 logger.warning(f"⚠️ 낮은 컨피던스로 재질문 유도 (confidence={response.confidence:.3f})")
             
             return response
