@@ -148,28 +148,28 @@ class general_handler(base_handler):
         return final_context
 
     def _generate_prompt(self, query: str, retrieved_docs: List[Tuple[TextChunk, float]]) -> str:
-        ""
-        일반 도메인에 특화된 최종 프롬프트 생성
-        """
-        # 검색된 문서를 format_context에 맞게 변환
-        formatted_search_results = [(doc.text, score, doc.metadata) for doc, score in retrieved_docs]
-        context = self.format_context(formatted_search_results)
-        system_prompt = self.get_system_prompt()
-        
-        prompt = f"""
-        {system_prompt}
+        """
+        일반 도메인에 특화된 최종 프롬프트 생성
+        """
+        # 검색된 문서를 format_context에 맞게 변환
+        formatted_search_results = [(doc.text, score, doc.metadata) for doc, score in retrieved_docs]
+        context = self.format_context(formatted_search_results)
+        system_prompt = self.get_system_prompt()
+        
+        prompt = f"""
+        {system_prompt}
 
-        ---
-        참고 자료 (일반 정보):
-        {context}
-        ---
+        ---
+        참고 자료 (일반 정보):
+        {context}
+        ---
 
-        사용자 질문:
-        {query}
+        사용자 질문:
+        {query}
 
-        답변:
-        """
-        return prompt    
+        답변:
+        """
+        return prompt
     
     def _extract_contact_info(self, search_results: List[Tuple[str, float, Dict[str, Any]]]) -> List[str]:
         """검색 결과에서 연락처 정보 추출"""
