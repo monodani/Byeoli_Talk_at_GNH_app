@@ -247,6 +247,48 @@ class menu_handler(base_handler):
         
         query_lower = query.lower()
         return any(keyword in query_lower for keyword in menu_keywords)
+
+    def _generate_prompt(
+        self,
+        query: str,
+        retrieved_docs: List[Tuple[TextChunk, float]]
+    ) -> str:
+        """
+        base_handler가 요구하는 추상 메서드 구현.
+        - retrieved_docs: (TextChunk, score) 튜플 리스트
+        - format_context()는 (text, score, metadata) 튜플 리스트를 기대하므로 어댑터 변환 필요
+        """
+        # 1) 시스템 프롬프트
+        system_prompt = self.get_system_prompt()
+
+        # 2) 컨텍스트 변환: TextChunk -> (text, score, metadata)
+        try:
+            context_tuples = [
+                (doc.text, score, getattr(doc, "metadata", {}) or {})
+                for (doc, score) in (retrieved_docs or [])
+                if doc is not None
+            ]
+        except Exception:
+            # 안전장치: 문제가 생겨도 최소한 빈 컨텍스트로 진행
+            context_tuples = []
+
+        # 3) menu 전용 컨텍스트 문자열 생성
+        context_block = self.format_context(context_tuples)
+
+        # 4) 최종 프롬프트 결합 (최소 형태)
+        prompt = (
+            f"{system_prompt}\n\n"
+            f"---\n"
+            f"사용자 질문:\n{query}\n\n"
+            f"참고 자료(식단표):\n{context_block}\n\n"
+            f"지침:\n"
+            f"- 제공된 참고 자료 내 정보만 사용하세요.\n"
+            f"- 없는 정보는 '식단표에 없음'이라고 답하세요.\n"
+            f"- 현재 요일/시간 맥락을 고려하되, 근거는 참고 자료에서만 취하세요.\n"
+        )
+        return prompt
+
+    
     
     def handle(self, request: QueryRequest) -> HandlerResponse:
         """
