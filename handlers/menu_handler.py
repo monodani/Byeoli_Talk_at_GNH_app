@@ -290,23 +290,24 @@ class menu_handler(base_handler):
 
     
     
-def handle(self, request: QueryRequest) -> HandlerResponse:
-    """
-    menu 도메인 특화 처리
-    기본 handle() 호출 후 시간 맥락 정보 자동 추가
-    """
-    # 기본 핸들러 로직 실행
-    response = super().handle(request)
-    
-    # QueryRequest에서 쿼리 텍스트 추출
-    query = getattr(request, 'query', None) or getattr(request, 'text', '')
-    
-    # menu 도메인 특화: 시간 맥락 정보 보강
-    if response.confidence >= self.confidence_threshold and self._is_menu_related_query(query):
-        enhanced_answer = self._enhance_response_with_time_context(response.answer, query)
-        response.answer = enhanced_answer
-    
-    return response
+    def handle(self, request: QueryRequest) -> HandlerResponse:
+        """
+        menu 도메인 특화 처리
+        기본 handle() 호출 후 시간 맥락 정보 자동 추가
+        """
+        # 기본 핸들러 로직 실행
+        response = super().handle(request)
+        
+        # QueryRequest에서 쿼리 텍스트 추출
+        query = getattr(request, 'query', None) or getattr(request, 'text', '')
+        
+        # menu 도메인 특화: 시간 맥락 정보 보강
+        if response.confidence >= self.confidence_threshold and self._is_menu_related_query(query):
+            enhanced_answer = self._enhance_response_with_time_context(response.answer, query)
+            response.answer = enhanced_answer
+        
+        return response
+
     
     def get_current_meal_recommendation(self) -> str:
         """현재 시간 기준 식사 추천 (유틸리티 메서드)"""
