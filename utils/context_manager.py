@@ -165,7 +165,7 @@ class ContextSummarizer:
         conversation_text = []
         for msg in recent_messages[-6:]:  # 최근 6턴만
             role_kr = "사용자" if msg.role == "user" else "시스템"
-            conversation_text.append(f"{role_kr}: {msg.text}")
+            conversation_text.append(f"{role_kr}: {msg.content}")
         
         conversation_str = "\n".join(conversation_text)
         
@@ -202,7 +202,7 @@ class ContextSummarizer:
         except Exception as e:
             logger.warning(f"요약 생성 실패: {e}")
             # 폴백: 최근 사용자 메시지 기반 간단 요약
-            user_messages = [msg.text for msg in recent_messages[-3:] if msg.role == "user"]
+            user_messages = [msg.content for msg in recent_messages[-3:] if msg.role == "user"]
             if user_messages:
                 return f"사용자가 {', '.join(user_messages[:2][:50])}에 대해 질문함"
             return "대화 진행 중"
@@ -293,7 +293,7 @@ class FollowUpDetector:
             context_msgs = []
             for msg in recent_messages[-4:]:  # 최근 4턴
                 role_kr = "사용자" if msg.role == "user" else "챗봇"
-                context_msgs.append(f"{role_kr}: {msg.text}")
+                context_msgs.append(f"{role_kr}: {msg.content}")
             
             context_str = "\n".join(context_msgs)
             
@@ -366,7 +366,7 @@ class QueryExpander:
             
             # 최근 어시스턴트 응답에서 주요 내용 추출
             recent_assistant_msgs = [
-                msg.text for msg in context.recent_messages[-3:] 
+                msg.content for msg in context.recent_messages[-3:] 
                 if msg.role == "assistant"
             ]
             
@@ -486,9 +486,9 @@ class ContextManager:
         if conversation_id not in self.conversations:
             # ✅ 수정: ConversationContext 스키마에 맞춰 수정
             self.conversations[conversation_id] = ConversationContext(
-                session_id=conversation_id,  # conversation_id → session_id
-                turns=[],                    # recent_messages → turns
-                entities={},                 # 빈 딕셔너리 (List가 아닌 Dict)
+                session_id=conversation_id,  
+                turns=[],                    
+                entities={},                 
                 summary="",
                 updated_at=datetime.now()
             )
@@ -503,8 +503,8 @@ class ContextManager:
         # ✅ 수정: ChatTurn 구조에 맞춰 수정
         new_message = ChatTurn(
             role=MessageRole(role) if isinstance(role, str) else role,
-            content=text,  # text → content
-            timestamp=datetime.now()  # ts → timestamp
+            content=text,  
+            timestamp=datetime.now() 
         )
         
         # ✅ 수정: recent_messages 속성을 통해 turns에 추가
@@ -711,7 +711,7 @@ def test_context_manager():
         print(f"Query 1 - Follow-up: {req1.follow_up}")
         print(f"Entities: {req1.context.entities[:5]}")
         print(f"Original: 2024년 중견리더 과정 만족도 결과를 보여주세요")
-        print(f"Expanded: {req1.text}")
+        print(f"Expanded: {req1.content}")
         
         # 시스템 응답 추가
         manager.add_response(conv_id, "2024년 중견리더 과정 만족도는 전체 평균 4.2점입니다. 기본역량 14.33%, 리더십역량 14.70%, 직무역량 24.64% 향상되었습니다.")
@@ -721,7 +721,7 @@ def test_context_manager():
         req2 = manager.create_query_request(conv_id, "그 중에서 가장 높은 향상도를 보인 역량은?")
         print(f"Query 2 - Follow-up: {req2.follow_up}")
         print(f"Original: 그 중에서 가장 높은 향상도를 보인 역량은?")
-        print(f"Expanded: {req2.text}")
+        print(f"Expanded: {req2.content}")
         print(f"Context hash: {manager.get_context_hash(conv_id)}")
         
         # 시스템 응답 추가
