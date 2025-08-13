@@ -209,6 +209,7 @@ def handle_satisfaction_query(query: str, temperature: float = 0.1, k: int = 5) 
     
     handler = satisfaction_handler()
     request = QueryRequest(
+        query=query,
         text=query,
         context=None,
         follow_up=False,
