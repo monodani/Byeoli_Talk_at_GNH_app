@@ -585,12 +585,23 @@ def render_sidebar():
     # 시스템 초기화 및 상태 정보 세션에 저장
     # 초기화 로직은 이 곳에서 한 번만 실행되도록 유지
     with st.spinner("시스템 초기화 중..."):
-        # index_health_check()의 결과를 st.session_state에 직접 저장
-        st.session_state.system_status = index_health_check()
+        base = st.session_state.system_status or {"success": True, "mode": "normal"}
+        try:
+            health = index_health_check()
+            if isinstance(health, dict):
+                base.update(health)
+            else:
+                # 비정상 응답 방어
+                base.setdefault("success", True)
+                base.setdefault("mode", "normal")
+        except Exception as e:
+            # 헬스체크 실패해도 기본 상태로 계속 진행
+            base.update({"success": True, "mode": "limited", "warning": f"Health check failed: {e}"})
+        st.session_state.system_status = base
     
     # st.sidebar 컨텍스트를 한 번만 사용하여 모든 사이드바 요소를 렌더링
     with st.sidebar:
-        st.markdown("### 🎯 챗봇 상태") # '시스템 상태'와 중복되지 않도록 제목을 변경
+        st.markdown("### 🎯 벼리톡 상태") # '시스템 상태'와 중복되지 않도록 제목을 변경
         
         # 시스템 상태 표시
         status = st.session_state.system_status
@@ -815,6 +826,9 @@ async def process_query(user_input: str) -> Dict[str, Any]:
     """
     start_time = time.time()
     
+    import uuid  # FIX: uuid 미임포트로 인해 trace_id 생성 시 NameError 방지
+    trace_id = str(uuid.uuid4())  # FIX: 괄호 누락 수정 및 trace_id 사전 생성
+
     try:
         logger.info(f"🔍 쿼리 처리 시작: '{user_input}'")
 
@@ -832,8 +846,8 @@ async def process_query(user_input: str) -> Dict[str, Any]:
                 except Exception:
                         ctx = vars(ctx)  # 최후의 보루
 
-# 라우터 호출 (수정된 부분)
-# QueryRequest 객체를 직접 생성하지 않고, user_input과 context를 라우터에 전달합니다.
+        # 라우터 호출 (수정된 부분)
+        # QueryRequest 객체를 직접 생성하지 않고, user_input과 context를 라우터에 전달합니다.
         router = get_router()
         handler_response = await router.route(
             user_input=user_input,
@@ -850,7 +864,8 @@ async def process_query(user_input: str) -> Dict[str, Any]:
                     MessageRole.USER,
                     user_input
                 )
-                query_request.context = updated_context
+                # FIX: query_request가 존재하지 않으므로 할당 제거
+                # query_request.context = updated_context
                 st.session_state.conversation_context = updated_context
             except Exception as e:
                 logger.warning(f"ContextManager 컨텍스트 업데이트 실패: {e}")
@@ -863,14 +878,14 @@ async def process_query(user_input: str) -> Dict[str, Any]:
         # 3. 시스템 상태에 따른 처리 분기
         system_status = st.session_state.system_status
         
-        if not system_status["success"] or system_status.get("mode") == "fallback":
+        if not (system_status or {}).get("success", True) or (system_status or {}).get("mode") == "fallback":
             # Fallback 모드: 기본 응답만 제공
             return await _handle_fallback_mode(user_input, start_time)
         
         # 3. 정상 모드: Router를 통한 처리
         try:
-            router = get_router()
-            response = await asyncio.to_thread(router.route, query_request)
+            # FIX: 이미 위에서 라우터 호출 완료 → 재호출 제거하고 결과 재사용
+            response = handler_response
             
             # 4. 응답 처리 및 컨텍스트 업데이트
             elapsed_time = time.time() - start_time
@@ -897,7 +912,7 @@ async def process_query(user_input: str) -> Dict[str, Any]:
                 "success": True,
                 "response": response,
                 "elapsed_time": elapsed_time,
-                "follow_up_detected": query_request.follow_up
+                "follow_up_detected": getattr(response, "follow_up", False)  # FIX: query_request 의존 제거
             }
             
         except asyncio.TimeoutError:
@@ -932,7 +947,8 @@ async def _handle_fallback_mode(user_input: str, start_time: float) -> Dict[str,
         "식단": ["식단", "메뉴", "밥", "식사", "점심", "저녁"],
         "연락처": ["연락처", "전화", "문의", "담당자"],
         "교육": ["교육", "과정", "훈련", "수업", "강의"],
-        "만족도": ["만족도", "평가", "설문", "조사"]
+        "만족도": ["만족도", "평가", "설문", "조사"],        # ← 이 키를 기준으로 분기
+        "시설": ["보건소", "숙소", "차량", "시설", "주차", "도서실"] 
     }
     
     response_text = "안녕하세요! 현재 시스템 점검 중으로 기본 서비스만 제공됩니다."
@@ -952,7 +968,7 @@ async def _handle_fallback_mode(user_input: str, start_time: float) -> Dict[str,
             elif category == "평가 및 만족도":
                 response_text = "평가 및 만족도 조사 관련은 인재개발지원과 평가분석담당(055-254-2021)으로 문의해 주세요."
             elif category == "보건소·숙소동 운영, 차량지원 및 시설 관리":
-                response_text = "보건소 및 숙소동, 차량지원 및 시설 관리 등 관련은 인재개발지원과 총무담당(055-254-2011)으로 문의해 주세요."                
+                response_text = "보건소 및 숙소동, 도서실, 차량지원 및 시설 관리 등 관련은 인재개발지원과 총무담당(055-254-2011)으로 문의해 주세요."                
             break
     
     # 가상 응답 객체 생성
@@ -1092,6 +1108,9 @@ def add_to_chat_history(user_input: str, result: Dict[str, Any]):
 
 def main():
     """메인 애플리케이션 로직"""
+    # ✅ system_status 기본값 초기화
+    if "system_status" not in st.session_state:
+        st.session_state.system_status = {"success": True, "mode": "normal"}
     
     try:
         # 세션 상태 초기화
@@ -1148,8 +1167,10 @@ def main():
         
         with col2:
             # 시스템 상태가 불안정한 경우 알림
-            status = st.session_state.system_status
-            if not status["success"]:
+            status = st.session_state.system_status or {}
+            succ = status.get("success", True)  # 키 없으면 True로 간주
+            
+            if not succ:
                 st.error("🚨 시스템 오류")
                 st.write("관리자에게 문의해 주세요.")
                 if not IS_PRODUCTION:
