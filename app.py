@@ -579,7 +579,7 @@ def render_sidebar():
     st.sidebar.markdown("---")
     
     st.image(str(config.ROOT_DIR / 'assets/Byeoli/hardworking_Byeoli.png'))
-    st.markdown("### 챗봇 상태")
+    st.markdown("### 벼리톡 상태")
     
     # 시스템 초기화 및 상태 정보 세션에 저장
     # 초기화 로직은 이 곳에서 한 번만 실행되도록 유지
