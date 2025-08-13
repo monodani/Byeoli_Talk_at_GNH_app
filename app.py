@@ -566,25 +566,42 @@ def render_header():
 
 def render_sidebar():
     """사이드바 렌더링 (도움말 + 상태 정보)"""
+
+    # --- 시스템 상태 확인 (클로드 제안 통합) ---
+    st.sidebar.markdown("### ⚙️ 시스템 상태")
+    if "OPENAI_API_KEY" in st.secrets:
+        st.sidebar.success("✅ Streamlit Secrets에서 API 키 로드됨")
+        # 보안을 위해 API 키 일부만 표시
+        api_key_part = st.secrets.get("OPENAI_API_KEY", "")[:10]
+        st.sidebar.info(f"🔑 API Key: `{api_key_part}...`")
+    else:
+        st.sidebar.warning("⚠️ Streamlit Secrets 없음 (로컬 환경)")
+    st.sidebar.markdown("---")
     
+    st.image(str(config.ROOT_DIR / 'assets/images/logo.png'))
+    st.markdown("### 챗봇 상태")
+    
+    # 시스템 초기화 및 상태 정보 세션에 저장
+    # 초기화 로직은 이 곳에서 한 번만 실행되도록 유지
+    with st.spinner("시스템 초기화 중..."):
+        # index_health_check()의 결과를 st.session_state에 직접 저장
+        st.session_state.system_status = index_health_check()
+    
+    # st.sidebar 컨텍스트를 한 번만 사용하여 모든 사이드바 요소를 렌더링
     with st.sidebar:
-        st.markdown("### 🎯 시스템 상태")
+        st.markdown("### 🎯 챗봇 상태") # '시스템 상태'와 중복되지 않도록 제목을 변경
         
         # 시스템 상태 표시
         status = st.session_state.system_status
         if status["success"]:
             if status.get("mode") == "full":
-                st.markdown('<div class="status-indicator status-healthy">🟢 정상 운영</div>', 
-                          unsafe_allow_html=True)
+                st.markdown('<div class="status-indicator status-healthy">🟢 정상 운영</div>', unsafe_allow_html=True)
             elif status.get("mode") == "limited":
-                st.markdown('<div class="status-indicator status-degraded">🟡 제한적 서비스</div>', 
-                          unsafe_allow_html=True)
+                st.markdown('<div class="status-indicator status-degraded">🟡 제한적 서비스</div>', unsafe_allow_html=True)
             else:
-                st.markdown('<div class="status-indicator status-error">🔴 기본 서비스</div>', 
-                          unsafe_allow_html=True)
+                st.markdown('<div class="status-indicator status-error">🔴 기본 서비스</div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div class="status-indicator status-error">🔴 시스템 오류</div>', 
-                      unsafe_allow_html=True)
+            st.markdown('<div class="status-indicator status-error">🔴 시스템 오류</div>', unsafe_allow_html=True)
         
         # 성능 통계
         stats = st.session_state.performance_stats
@@ -600,11 +617,9 @@ def render_sidebar():
         
         # ContextManager 상태 표시
         if st.session_state.context_manager:
-            st.markdown('<div class="status-indicator status-healthy">🤖 고급 컨텍스트 관리</div>', 
-                      unsafe_allow_html=True)
+            st.markdown('<div class="status-indicator status-healthy">🤖 고급 컨텍스트 관리</div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div class="status-indicator status-degraded">🔧 기본 컨텍스트 관리</div>', 
-                      unsafe_allow_html=True)
+            st.markdown('<div class="status-indicator status-degraded">🔧 기본 컨텍스트 관리</div>', unsafe_allow_html=True)
         
         # 세션 초기화 버튼
         if st.button("🔄 새 대화 시작", use_container_width=True):
@@ -612,6 +627,7 @@ def render_sidebar():
             st.rerun()
         
         # 도움말
+        st.markdown("---")
         st.markdown("### 📚 사용 가이드")
         
         with st.expander("💡 질문 예시"):
@@ -620,7 +636,7 @@ def render_sidebar():
             - 2024년 교육과정 만족도는?
             - 교과목 만족도 순위 보여줘
             
-            **📋 규정 및 연락처**  
+            **📋 규정 및 연락처**
             - 학칙 출석 규정 알려줘
             - 총무담당 연락처는?
             
@@ -1138,7 +1154,7 @@ def main():
             st.code(f"개발 환경 오류:\n{traceback.format_exc()}")
         else:
             st.write("시스템 관리자에게 문의해 주세요.")
-            st.write("**대표 연락처**: 055-254-2000")
+            st.write("**시스템 관리자 연락처**: 055-254-2023")
 
 # ================================================================
 # 8. 애플리케이션 진입점
