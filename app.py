@@ -31,6 +31,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
+from pydantic import BaseModel
 
 import streamlit as st
 from streamlit.runtime.caching import cache_data
@@ -816,12 +817,28 @@ async def process_query(user_input: str) -> Dict[str, Any]:
     
     try:
         logger.info(f"🔍 쿼리 처리 시작: '{user_input}'")
+
+        # 0) 컨텍스트 타입 가드 (동명이인 클래스/일반 객체 대비)
+        ctx = st.session_state.get("conversation_context")
+        if isinstance(ctx, BaseModel) and not isinstance(ctx, ConversationContext):
+            ctx = ConversationContext.model_validate(ctx.model_dump())
+        elif hasattr(ctx, "__dict__") and not isinstance(ctx, (ConversationContext, dict)):
+            try:
+                ctx = ConversationContext.model_validate({
+                    k: getattr(ctx, k) for k in
+                    ("session_id","turns","entities","current_topic","summary","created_at","updated_at")
+                    if hasattr(ctx, k)
+                })
+            except Exception:
+                ctx = vars(ctx)  # 최후의 보루: dict로 던짐
+        
         
         # 1. 쿼리 요청 객체 생성
         query_request = QueryRequest(
-            text=user_input,
-            context=st.session_state.conversation_context,
-            trace_id=str(uuid.uuid4())[:8]
+            query=user_input,
+            domain=domain,            
+            context=ctx,
+            metadata={"trace_id": trace_id}            
         )
         
         # 2. ContextManager 사용 가능 여부 확인 및 컨텍스트 업데이트
