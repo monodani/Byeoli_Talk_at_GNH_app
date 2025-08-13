@@ -224,7 +224,7 @@ class general_handler(base_handler):
         # general 도메인 특화: 연락처 정보 보강
         if response.confidence >= self.confidence_threshold:
             # 재검색하여 연락처 정보 추가
-            search_results = self.hybrid_search(request.text, k=10)
+            search_results = self.hybrid_search(request.query, k=10)
             enhanced_answer = self._enhance_response_with_contacts(response.answer, search_results)
             response.answer = enhanced_answer
         
