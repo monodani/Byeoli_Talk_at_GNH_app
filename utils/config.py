@@ -50,7 +50,7 @@ class AppConfig:
     OPENAI_API_KEY : Optional[str] = None
     ANTHROPIC_API_KEY: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     
-    # 모델 설정 (.env.example과 통일)
+    # 모델 설정 (.env와 통일)
     OPENAI_MODEL_MAIN: str = field(default_factory=lambda: os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL_MAIN", "gpt-4o-mini")))
     OPENAI_MODEL_ROUTER: str = field(default_factory=lambda: os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL_ROUTER", "gpt-4o-mini")))
     
@@ -64,7 +64,7 @@ class AppConfig:
     CHUNK_SIZE: int = field(default_factory=lambda: int(os.getenv("CHUNK_SIZE", "1000")))
     CHUNK_OVERLAP: int = field(default_factory=lambda: int(os.getenv("CHUNK_OVERLAP", "100")))
     
-    # 라우팅 설정 (.env.example과 통일)
+    # 라우팅 설정 (.env와 통일)
     ROUTER_CANDIDATE_SELECTION_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("ROUTER_CANDIDATE_SELECTION_TIMEOUT", "3.0")))
     ROUTER_HANDLER_EXECUTION_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("ROUTER_HANDLER_EXECUTION_TIMEOUT", "12.0")))
     ROUTER_TOTAL_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("TIMEBOX_S", os.getenv("ROUTER_TOTAL_TIMEOUT", "15.0"))))
@@ -79,7 +79,7 @@ class AppConfig:
         "notice"
     ])
     
-    # 컨피던스 임계값 설정 (.env.example과 통일)
+    # 컨피던스 임계값 설정 (.env와 통일)
     CONFIDENCE_THRESHOLD_GENERAL: float = field(default_factory=lambda: float(os.getenv("TH_GENERAL", os.getenv("CONFIDENCE_THRESHOLD_GENERAL", "0.70"))))
     CONFIDENCE_THRESHOLD_PUBLISH: float = field(default_factory=lambda: float(os.getenv("TH_PUBLISH", os.getenv("CONFIDENCE_THRESHOLD_PUBLISH", "0.74"))))
     CONFIDENCE_THRESHOLD_SATISFACTION: float = field(default_factory=lambda: float(os.getenv("TH_SATIS", os.getenv("CONFIDENCE_THRESHOLD_SATISFACTION", "0.68"))))
@@ -88,12 +88,12 @@ class AppConfig:
     CONFIDENCE_THRESHOLD_NOTICE: float = field(default_factory=lambda: float(os.getenv("TH_NOTICE", os.getenv("CONFIDENCE_THRESHOLD_NOTICE", "0.62"))))
     CONFIDENCE_THRESHOLD_FALLBACK: float = field(default_factory=lambda: float(os.getenv("CONFIDENCE_THRESHOLD_FALLBACK", "0.00")))
     
-    # 캐시 설정 (.env.example과 통일)
+    # 캐시 설정 (.env와 통일)
     CACHE_TTL_NOTICE: int = field(default_factory=lambda: int(os.getenv("TTL_NOTICE_HOURS", "6")) * 3600)  # 시간을 초로 변환
     CACHE_TTL_MENU: int = field(default_factory=lambda: int(os.getenv("TTL_MENU_HOURS", "6")) * 3600)
     CACHE_TTL_DEFAULT: int = field(default_factory=lambda: int(os.getenv("TTL_OTHERS_DAYS", "30")) * 86400)  # 일을 초로 변환
     
-    # 대화형 RAG 설정 (.env.example과 통일)
+    # 대화형 RAG 설정 (.env와 통일)
     CONVERSATION_RECENT_MESSAGES_WINDOW: int = field(default_factory=lambda: int(os.getenv("RECENT_TURNS", os.getenv("CONVERSATION_RECENT_MESSAGES_WINDOW", "6"))))
     CONVERSATION_SUMMARY_UPDATE_INTERVAL: int = field(default_factory=lambda: int(os.getenv("SUMMARY_EVERY_TURNS", os.getenv("CONVERSATION_SUMMARY_UPDATE_INTERVAL", "4"))))
     CONVERSATION_SUMMARY_TOKEN_THRESHOLD: int = field(default_factory=lambda: int(os.getenv("CONVERSATION_SUMMARY_TOKEN_THRESHOLD", "1000")))
@@ -102,7 +102,7 @@ class AppConfig:
     LOG_LEVEL: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     LOG_FORMAT: str = field(default_factory=lambda: os.getenv("LOG_FORMAT", "json"))
     
-    # 디렉터리 경로 (.env.example과 통일)
+    # 디렉터리 경로 (.env와 통일)
     ROOT_DIR: Path = field(default=ROOT_DIR)
     DATA_DIR: Path = field(default_factory=lambda: Path(os.getenv("DATA_DIR", str(ROOT_DIR / "data"))))
     VECTORSTORE_DIR: Path = field(default_factory=lambda: Path(os.getenv("VECTOR_DIR", str(ROOT_DIR / "vectorstores"))))
@@ -110,7 +110,7 @@ class AppConfig:
     LOGS_DIR: Path = field(default_factory=lambda: Path(os.getenv("LOG_DIR", str(ROOT_DIR / "logs"))))
     SCHEMAS_DIR: Path = field(default_factory=lambda: ROOT_DIR / "schemas")
     
-    # 앱 모드 (.env.example 추가)
+    # 앱 모드 (.env와 통일)
     APP_MODE: str = field(default_factory=lambda: os.getenv("APP_MODE", "dev"))
     
     def __post_init__(self):
