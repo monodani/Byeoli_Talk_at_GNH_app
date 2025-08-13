@@ -186,7 +186,7 @@ async def test_router_performance():
             result = {
                 "query": query[:50],
                 "expected": expected_domain,
-                "actual": response.handler_id,
+                "actual": response.domain,
                 "confidence": response.confidence,
                 "total_time_ms": total_time_ms,
                 "timebox_ok": timebox_ok,
@@ -197,7 +197,7 @@ async def test_router_performance():
             
             # 결과 출력
             status = "✅" if timebox_ok else "⚠️"
-            print(f"  {status} 핸들러: {response.handler_id}")
+            print(f"  {status} 핸들러: {response.domain}")
             print(f"  ⏱️ 시간: {total_time_ms}ms")
             print(f"  📊 컨피던스: {response.confidence:.3f}")
             print(f"  📝 Citation 수: {len(response.citations)}")
@@ -321,7 +321,7 @@ async def test_end_to_end_scenarios():
             conversation_id=conversation_id
         )
         
-        print(f"  응답1 핸들러: {response1.handler_id}")
+        print(f"  응답1 핸들러: {response1.domain}")
         print(f"  응답1 컨피던스: {response1.confidence:.3f}")
         print(f"  응답1 길이: {len(response1.answer)} 문자")
         
@@ -331,21 +331,21 @@ async def test_end_to_end_scenarios():
             conversation_id=conversation_id
         )
         
-        print(f"  응답2 핸들러: {response2.handler_id}")
+        print(f"  응답2 핸들러: {response2.domain}")
         print(f"  응답2 컨피던스: {response2.confidence:.3f}")
         
         # 시나리오 2: 연락처 조회
         print("\n📝 시나리오 2: 연락처 조회")
         response3 = await route_query("교육기획담당 연락처 알려주세요")
         
-        print(f"  응답3 핸들러: {response3.handler_id}")
+        print(f"  응답3 핸들러: {response3.domain}")
         print(f"  응답3 컨피던스: {response3.confidence:.3f}")
         
         # 시나리오 3: 식단 조회
         print("\n📝 시나리오 3: 구내식당 식단 조회")
         response4 = await route_query("오늘 구내식당 점심 메뉴 뭐야?")
         
-        print(f"  응답4 핸들러: {response4.handler_id}")
+        print(f"  응답4 핸들러: {response4.domain}")
         print(f"  응답4 컨피던스: {response4.confidence:.3f}")
         
         # 성공 기준: 모든 응답이 적절한 핸들러와 컨피던스를 가져야 함

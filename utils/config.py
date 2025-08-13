@@ -519,13 +519,13 @@ def validate_keyword_rules():
     """키워드 매칭 규칙 검증"""
     issues = []
     
-    for handler_id, keywords in KEYWORD_MATCHING_RULES.items():
+    for domain, keywords in KEYWORD_MATCHING_RULES.items():
         for keyword, score in keywords.items():
             if not (0.0 <= score <= 1.0):
-                issues.append(f"{handler_id}.{keyword}: score {score} out of range [0.0, 1.0]")
+                issues.append(f"{domain}.{keyword}: score {score} out of range [0.0, 1.0]")
             
             if keyword in KEYWORD_STOP_WORDS:
-                issues.append(f"{handler_id}.{keyword}: keyword is in stop words")
+                issues.append(f"{domain}.{keyword}: keyword is in stop words")
     
     if issues:
         print("❌ 키워드 규칙 검증 실패:")
@@ -561,8 +561,8 @@ def print_config_summary():
         print(f"  {handler}: {hours}시간" if hours < 24 else f"  {handler}: {ttl//86400}일")
     
     print(f"\n🎯 키워드 규칙 통계:")
-    for handler_id, keywords in KEYWORD_MATCHING_RULES.items():
-        print(f"  {handler_id}: {len(keywords)}개 키워드")
+    for domain, keywords in KEYWORD_MATCHING_RULES.items():
+        print(f"  {domain}: {len(keywords)}개 키워드")
 
 
 # ================================================================

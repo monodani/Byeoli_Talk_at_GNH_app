@@ -336,11 +336,11 @@ def get_byeoli_image(response: HandlerResponse = None, answer: str = "") -> str:
         # 응답 객체가 있으면 해당 정보 우선 활용
         if response:
             answer = response.answer
-            handler_id = getattr(response, 'handler_id', '')
+            domain = getattr(response, 'domain', '')
             confidence = getattr(response, 'confidence', 1.0)
             
             # fallback 핸들러이거나 낮은 컨피던스
-            if handler_id == 'fallback' or confidence < 0.3:
+            if domain == 'fallback' or confidence < 0.3:
                 if any(word in answer for word in ['죄송', '미안', '오류', '실패', '문제']):
                     return BYEOLI_IMAGES["sorry"]
                 else:
@@ -729,7 +729,7 @@ def render_chat_history():
                 performance_html = ""
                 if msg.get("elapsed_ms"):
                     confidence = msg.get("confidence", 0)
-                    handler = msg.get("handler_id", "unknown")
+                    handler = msg.get("domain", "unknown")
                     performance_html = f"""
                     <div class="performance-metrics">
                         ⏱️ {msg['elapsed_ms']}ms | 🎯 {confidence:.2f} | 🔧 {handler}
@@ -976,7 +976,7 @@ async def _handle_fallback_mode(user_input: str, start_time: float) -> Dict[str,
         'answer': response_text,
         'citations': [],
         'confidence': 0.5,
-        'handler_id': 'fallback',
+        'domain': 'fallback',
         'elapsed_ms': int(elapsed_time * 1000)
     })()
     
@@ -997,7 +997,7 @@ async def _handle_timeout_error(user_input: str, start_time: float) -> Dict[str,
         'answer': "죄송합니다. 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
         'citations': [],
         'confidence': 0.0,
-        'handler_id': 'timeout',
+        'domain': 'timeout',
         'elapsed_ms': int(elapsed_time * 1000)
     })()
     
@@ -1025,7 +1025,7 @@ async def _handle_processing_error(user_input: str, error_msg: str, start_time: 
         'answer': friendly_msg,
         'citations': [],
         'confidence': 0.0,
-        'handler_id': 'error',
+        'domain': 'error',
         'elapsed_ms': int(elapsed_time * 1000)
     })()
     
@@ -1086,7 +1086,7 @@ def add_to_chat_history(user_input: str, result: Dict[str, Any]):
             "content": response.answer,
             "citations": citations,
             "confidence": getattr(response, 'confidence', 0.0),
-            "handler_id": getattr(response, 'handler_id', 'unknown'),
+            "domain": getattr(response, 'domain', 'unknown'),
             "elapsed_ms": getattr(response, 'elapsed_ms', 0),
             "timestamp": datetime.now()
         })
@@ -1097,7 +1097,7 @@ def add_to_chat_history(user_input: str, result: Dict[str, Any]):
             "content": result.get("error", "알 수 없는 오류가 발생했습니다."),
             "citations": [],
             "confidence": 0.0,
-            "handler_id": "error",
+            "domain": "error",
             "elapsed_ms": int(result.get("elapsed_time", 0) * 1000),
             "timestamp": datetime.now()
         })

@@ -289,7 +289,7 @@ class fallback_handler(base_handler):
         return HandlerResponse(
             answer=answer,
             confidence=0.00, # Fallback 핸들러의 컨피던스 임계값은 항상 0.00
-            handler_id=self.domain,                  
+            domain=self.domain,                  
             citations=citations,
             elapsed_ms=elapsed_ms,
             success=True,           
@@ -346,7 +346,7 @@ if __name__ == "__main__":
         response = handler.handle(request)
         print(f"✅ 응답: {response.answer}")
         print(f"📊 컨피던스: {response.confidence:.3f}")
-        print(f"🔗 핸들러ID: {response.handler_id}")
+        print(f"🔗 핸들러ID: {response.domain}")
         print(f"⏱️ 소요시간: {response.elapsed_ms}ms")
         print(f"📄 Citation 수: {len(response.citations)}")
         for citation in response.citations:

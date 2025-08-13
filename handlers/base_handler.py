@@ -419,7 +419,7 @@ class base_handler(ABC):
             return HandlerResponse(
                 answer=answer,
                 confidence=confidence,
-                handler_id=self.domain,
+                domain=self.domain,
                 citations=citations,
                 elapsed_ms=elapsed_ms,
                 success=confidence >= self.confidence_threshold,
@@ -452,7 +452,7 @@ class base_handler(ABC):
         return HandlerResponse(
             answer=fallback_text,
             confidence=0.1,
-            handler_id=self.domain,
+            domain=self.domain,
             citations=[],            # ✅ citations 필드 사용
             elapsed_ms=0,           # ✅ elapsed_ms 필드 추가
             success=False,          # ✅ success 필드 추가

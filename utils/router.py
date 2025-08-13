@@ -376,7 +376,7 @@ class Router:
                     try:
                         domain = futures[future]
                         response = future.result(timeout=0.1)  # 이미 완료된 작업이므로 즉시 반환
-                        responses[handler_id] = response                        
+                        responses[domain] = response                        
                         logger.info(f"✅ {domain.value} 핸들러 완료: confidence={response.confidence:.3f}")
                         
                     except Exception as e:
@@ -393,7 +393,7 @@ class Router:
             best_response = max(responses.values(), key=lambda r: r.confidence)
             
             execution_time = time.time() - execution_start
-            logger.info(f"🎯 최적 응답 선택: {best_response.handler_id} (confidence: {best_response.confidence:.3f}, {execution_time:.3f}s)")
+            logger.info(f"🎯 최적 응답 선택: {best_response.domain} (confidence: {best_response.confidence:.3f}, {execution_time:.3f}s)")
             
             return best_response
         else:
@@ -447,7 +447,7 @@ class Router:
                     snippet="긴급 상황 시 기본 응답"
                 )],
                 confidence=0.1,
-                handler_id=HandlerType.FALLBACK.value,
+                domain=HandlerType.FALLBACK.value,
                 elapsed_ms=100,
                 success=False,
                 diagnostics={"emergency_fallback": True, "error": str(e)}
@@ -524,6 +524,6 @@ if __name__ == "__main__":
         response = await route_query("교육과정 만족도 1위 알려줘")
         print(f"응답: {response.answer[:100]}...")
         print(f"컨피던스: {response.confidence:.3f}")
-        print(f"핸들러: {response.handler_id}")
+        print(f"핸들러: {response.domain}")
     
     asyncio.run(main())
