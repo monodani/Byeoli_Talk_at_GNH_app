@@ -240,6 +240,7 @@ if __name__ == "__main__":
             import uuid
             
             request = QueryRequest(
+                query=query,
                 text=query,
                 context=None,
                 follow_up=False,
