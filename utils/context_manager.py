@@ -435,7 +435,21 @@ class ContextManager:
         if self._initialized:
             return
             
-        self.openai_client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
+        # Streamlit secrets 또는 환경변수에서 API 키 가져오기
+        try:
+            import streamlit as st
+            api_key = st.secrets.get("OPENAI_API_KEY")
+        except:
+            api_key = os.getenv("OPENAI_API_KEY")
+        
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY not found in Streamlit secrets or environment")
+        
+        # proxies 매개변수 제거!
+        self.openai_client = openai.OpenAI(
+            api_key=api_key
+            # proxies 제거됨
+        )
         
         # 메모리 기반 세션 저장소 (st.session_state와 연동)
         self.conversations: Dict[str, ConversationContext] = {}
