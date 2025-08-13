@@ -443,6 +443,8 @@ class Router:
                 answer="죄송합니다. 현재 시스템에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해주시거나, 담당부서(055-254-2011)로 직접 문의해주세요.",
                 citations=[Citation(
                     source_id="system/emergency",
+                    text="긴급 상황 시 기본 응답",
+                    relevance_score=0.0,
                     snippet="긴급 상황 시 기본 응답"
                 )],
                 confidence=0.1,
