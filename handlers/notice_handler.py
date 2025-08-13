@@ -391,7 +391,7 @@ class notice_handler(base_handler):
         
         # notice 도메인 특화: 시간 맥락 정보 보강
         if response.confidence >= self.confidence_threshold:
-            enhanced_answer = self._enhance_response_with_timing(response.answer, request.text)
+            enhanced_answer = self._enhance_response_with_timing(response.answer, request.query)
             response.answer = enhanced_answer
         
         return response
