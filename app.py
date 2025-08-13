@@ -818,28 +818,35 @@ async def process_query(user_input: str) -> Dict[str, Any]:
     try:
         logger.info(f"🔍 쿼리 처리 시작: '{user_input}'")
 
-        # 0) 컨텍스트 타입 가드 (동명이인 클래스/일반 객체 대비)
+        # 0) 컨텍스트 타입 가드
         ctx = st.session_state.get("conversation_context")
         if isinstance(ctx, BaseModel) and not isinstance(ctx, ConversationContext):
-            ctx = ConversationContext.model_validate(ctx.model_dump())
+                ctx = ConversationContext.model_validate(ctx.model_dump())
         elif hasattr(ctx, "__dict__") and not isinstance(ctx, (ConversationContext, dict)):
-            try:
-                ctx = ConversationContext.model_validate({
-                    k: getattr(ctx, k) for k in
-                    ("session_id","turns","entities","current_topic","summary","created_at","updated_at")
-                    if hasattr(ctx, k)
-                })
-            except Exception:
-                ctx = vars(ctx)  # 최후의 보루: dict로 던짐
-        
-        
-        # 1. 쿼리 요청 객체 생성
-        query_request = QueryRequest(
-            query=user_input,
-            domain=domain,            
-            context=ctx,
-            metadata={"trace_id": trace_id}            
-        )
+                try:
+                        ctx = ConversationContext.model_validate({
+                                k: getattr(ctx, k) for k in
+                                ("session_id","turns","entities","current_topic","summary","created_at","updated_at")
+                                if hasattr(ctx, k)
+                        })
+                except Exception:
+                        ctx = vars(ctx)  # 최후의 보루
+
+        # ✅ QueryRequest 전처리 (text→query, trace_id→metadata)
+        payload = {
+                "text": user_input,
+                "domain": domain,
+                "context": ctx,
+                "trace_id": trace_id
+        }
+        payload["query"] = payload.pop("text", payload.get("query", ""))
+        md = payload.get("metadata") or {}
+        if "trace_id" in payload:
+                md["trace_id"] = payload.pop("trace_id")
+        payload["metadata"] = md        
+
+        # 1. 쿼리 요청 객체 생성 (payload 사용)
+        query_request = QueryRequest(**payload)
         
         # 2. ContextManager 사용 가능 여부 확인 및 컨텍스트 업데이트
         if st.session_state.context_manager:
