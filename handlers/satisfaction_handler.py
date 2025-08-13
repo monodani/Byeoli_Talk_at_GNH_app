@@ -97,6 +97,29 @@ class satisfaction_handler(base_handler):
             context_parts.append(context_part)
         
         return "\n".join(context_parts)
+
+    def _generate_prompt(self, query: str, retrieved_docs: List[Tuple[TextChunk, float]]) -> str:
+        """
+        만족도 도메인에 특화된 최종 프롬프트 생성
+        """
+        system_prompt = self.get_system_prompt()
+        context = self.format_context([(doc.text, score, doc.metadata) for doc, score in retrieved_docs])
+        
+        prompt = f"""
+        {system_prompt}
+
+        ---
+        참고 자료 (만족도 데이터):
+        {context}
+        ---
+
+        사용자 질문:
+        {query}
+
+        답변:
+        """
+        return prompt
+        
     
     def handle(self, request: QueryRequest) -> HandlerResponse:
         """
