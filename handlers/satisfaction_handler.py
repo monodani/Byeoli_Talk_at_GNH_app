@@ -159,10 +159,6 @@ class satisfaction_handler(base_handler):
             # 임계값 복원
             self.confidence_threshold = original_threshold
 
-            
-        finally:
-            # 임계값 복원
-            self.confidence_threshold = original_threshold
     
     def _standardize_satisfaction_scores(self, answer: str) -> str:
         """만족도 점수 표기 표준화"""
