@@ -280,7 +280,7 @@ class Router:
                 candidate = HandlerCandidate(
                     domain=handler_type.value,  # ✅ domain 필드 사용
                     confidence=confidence,  # ✅ confidence 필드 사용
-                    reasoning=f"규칙:{rule_score:.2f} + LLM:{llm_score:.2f} = {combined_score:.2f}",
+                    reasoning=f"규칙:{rule_score:.2f} + LLM:{llm_score:.2f} = {confidence:.2f}",
                     is_rule_based=False,
                     metadata={
                         "rule_score": rule_score,
@@ -291,7 +291,7 @@ class Router:
                 candidates.append(candidate)
             
             # 점수 기준 정렬 후 Top-2 선정
-            candidates.sort(key=lambda x: x.combined_score, reverse=True)
+            candidates.sort(key=lambda x: x.confidence, reverse=True)
             top_candidates = candidates[:2]
             
             # follow_up 요청 시 θ 완화 적용
@@ -376,13 +376,12 @@ class Router:
                     try:
                         domain = futures[future]
                         response = future.result(timeout=0.1)  # 이미 완료된 작업이므로 즉시 반환
-                        responses[handler_id] = response
-                        
-                        logger.info(f"✅ {handler_id.value} 핸들러 완료: confidence={response.confidence:.3f}")
+                        responses[handler_id] = response                        
+                        logger.info(f"✅ {domain.value} 핸들러 완료: confidence={response.confidence:.3f}")
                         
                     except Exception as e:
                         domain = futures[future]
-                        logger.error(f"❌ {handler_id.value} 핸들러 실행 실패: {e}")
+                        logger.error(f"❌ {domain.value} 핸들러 실행 실패: {e}")
                         continue
                 
         except TimeoutError:
@@ -424,7 +423,7 @@ class Router:
                     domain=HandlerType.FALLBACK.value,
                     context=None,
                     follow_up=False,
-                    teace_id=str(uuid.uuid4()),
+                    trace_id=str(uuid.uuid4()),
                     metadata={"error": error_reason}
                 )
                 response = await asyncio.to_thread(fallback.handle, fallback_request)
