@@ -50,7 +50,7 @@ class QueryRequest(BaseModel):
     
     query: str
     domain: Optional[str] = None
-    context: Optional[ConversationContext] = None
+    context: Optional[Union[ConversationContext, Dict[str, Any]]]
     metadata: Dict[str, Any] = Field(default_factory=dict)
     max_results: int = Field(default=5, ge=1, le=20)
     confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
