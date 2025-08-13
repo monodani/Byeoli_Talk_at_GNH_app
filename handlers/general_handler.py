@@ -15,10 +15,12 @@ base_handler를 상속받아 general 도메인 특화 기능 구현
 
 import logging
 from typing import List, Dict, Any, Tuple
+from utils.textifier import TextChunk
 
 # 프로젝트 모듈
 from handlers.base_handler import base_handler
 from utils.contracts import QueryRequest, HandlerResponse
+
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -144,6 +146,30 @@ class general_handler(base_handler):
             final_context = final_context[:max_length] + "\n\n[컨텍스트가 길어 일부 생략됨]"
         
         return final_context
+
+    def _generate_prompt(self, query: str, retrieved_docs: List[Tuple[TextChunk, float]]) -> str:
+        """
+        일반 도메인에 특화된 최종 프롬프트 생성
+        """
+        # 검색된 문서를 format_context에 맞게 변환
+        formatted_search_results = [(doc.text, score, doc.metadata) for doc, score in retrieved_docs]
+        context = self.format_context(formatted_search_results)
+        system_prompt = self.get_system_prompt()
+        
+        prompt = f"""
+        {system_prompt}
+
+        ---
+        참고 자료 (일반 정보):
+        {context}
+        ---
+
+        사용자 질문:
+        {query}
+
+        답변:
+        """
+        return prompt    
     
     def _extract_contact_info(self, search_results: List[Tuple[str, float, Dict[str, Any]]]) -> List[str]:
         """검색 결과에서 연락처 정보 추출"""
