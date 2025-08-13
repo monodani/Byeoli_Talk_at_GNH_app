@@ -484,12 +484,13 @@ class ContextManager:
     def get_or_create_context(self, conversation_id: str) -> ConversationContext:
         """대화 컨텍스트 가져오기 또는 생성"""
         if conversation_id not in self.conversations:
+            # ✅ 수정: ConversationContext 스키마에 맞춰 수정
             self.conversations[conversation_id] = ConversationContext(
-                conversation_id=conversation_id,
+                session_id=conversation_id,  # conversation_id → session_id
+                turns=[],                    # recent_messages → turns
+                entities={},                 # 빈 딕셔너리 (List가 아닌 Dict)
                 summary="",
-                recent_messages=[],
-                entities=[],
-                updated_at=datetime.now(timezone.utc)
+                updated_at=datetime.now()
             )
             logger.debug(f"새 대화 컨텍스트 생성: {conversation_id}")
         
@@ -499,12 +500,14 @@ class ContextManager:
         """메시지 추가 및 컨텍스트 업데이트"""
         context = self.get_or_create_context(conversation_id)
         
-        # 새 메시지 추가
+        # ✅ 수정: ChatTurn 구조에 맞춰 수정
         new_message = ChatTurn(
-            role=role,
-            text=text,
-            ts=datetime.now(timezone.utc)
+            role=MessageRole(role) if isinstance(role, str) else role,
+            content=text,  # text → content
+            timestamp=datetime.now()  # ts → timestamp
         )
+        
+        # ✅ 수정: recent_messages 속성을 통해 turns에 추가
         context.recent_messages.append(new_message)
         
         # 윈도우 크기 유지 (최근 N턴만 보관)
@@ -514,20 +517,23 @@ class ContextManager:
         # 엔티티 업데이트 (사용자 메시지만)
         if role == "user":
             new_entities = self.entity_extractor.extract_entities(text)
-            context.entities.extend(new_entities)
-            context.entities = list(set(context.entities))[:30]  # 중복 제거 및 최대 30개
+            # ✅ 수정: entities는 Dict[str, List[str]] 구조
+            if "extracted" not in context.entities:
+                context.entities["extracted"] = []
+            context.entities["extracted"].extend(new_entities)
+            context.entities["extracted"] = list(set(context.entities["extracted"]))[:30]
         
         # 요약 업데이트 조건 확인
         should_update_summary = (
-            len(context.recent_messages) % self.summary_update_interval == 0 or  # 매 N턴
-            self._estimate_tokens(" ".join([msg.text for msg in context.recent_messages])) > self.summary_token_threshold  # 토큰 임계값 초과
+            len(context.recent_messages) % self.summary_update_interval == 0 or
+            self._estimate_tokens(" ".join([msg.content for msg in context.recent_messages])) > self.summary_token_threshold
         )
         
         if should_update_summary and len(context.recent_messages) >= 2:
             context.summary = self.context_summarizer.generate_summary(context.recent_messages)
             logger.debug(f"대화 요약 업데이트: {conversation_id}")
         
-        context.updated_at = datetime.now(timezone.utc)
+        context.updated_at = datetime.now()
         
         return context
     
@@ -632,9 +638,15 @@ class ContextManager:
         }
         
 
-    def update_context(self, conversation_id: str, role, content: str):
-        """컨텍스트 업데이트 메소드"""
-        return self.add_message(conversation_id, role.value, content)
+    def update_context(self, conversation_id: str, role, content: str) -> ConversationContext:
+        """컨텍스트 업데이트 메소드 (app.py 호환성)"""
+        try:
+            role_value = role.value if hasattr(role, 'value') else str(role)
+            return self.add_message(conversation_id, role_value, content)
+        except Exception as e:
+            logger.warning(f"update_context 실패: {e}")
+            # 기본 컨텍스트 반환
+            return self.get_or_create_context(conversation_id)
 
 
 
