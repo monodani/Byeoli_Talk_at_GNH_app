@@ -578,7 +578,7 @@ def render_sidebar():
         st.sidebar.warning("⚠️ Streamlit Secrets 없음 (로컬 환경)")
     st.sidebar.markdown("---")
     
-    st.image(str(config.ROOT_DIR / 'assets/images/logo.png'))
+    st.image(str(config.ROOT_DIR / 'assets/Byeoli/hardworking_Byeoli.png'))
     st.markdown("### 챗봇 상태")
     
     # 시스템 초기화 및 상태 정보 세션에 저장
