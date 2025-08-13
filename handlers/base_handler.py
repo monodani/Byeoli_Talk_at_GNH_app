@@ -382,12 +382,59 @@ class base_handler(ABC):
         """
         pass
     
-    @abstractmethod
     def handle(self, request: QueryRequest) -> HandlerResponse:
         """
-        쿼리 처리 메인 로직 (하위 클래스에서 구현)
+        표준 핸들러 처리 로직 (모든 하위 핸들러에서 공통 사용)
         """
-        pass
+        start_time = time.time()
+        
+        try:
+            # QueryRequest에서 쿼리 텍스트 추출
+            query = getattr(request, 'query', None) or getattr(request, 'text', '')
+            
+            # 1. 하이브리드 검색 수행
+            retrieved_docs = self._hybrid_search(query, k=5)
+            
+            # 2. 프롬프트 생성 (하위 클래스에서 구현)
+            prompt = self._generate_prompt(query, retrieved_docs)
+            
+            # 3. LLM 응답 생성
+            if not self.llm:
+                logger.warning(f"⚠️ {self.domain}: LLM이 초기화되지 않아 fallback 응답 사용")
+                return self._fallback_response(query, "LLM 초기화 실패")
+            
+            # 스트리밍 응답 수집
+            response_chunks = list(self._stream_response(prompt))
+            answer = "".join(response_chunks)
+            
+            # 4. 컨피던스 계산
+            confidence = self._calculate_confidence(query, retrieved_docs, answer)
+            
+            # 5. Citation 추출
+            citations = self._extract_citations(retrieved_docs)
+            
+            # 6. 응답 생성
+            elapsed_ms = (time.time() - start_time) * 1000
+            
+            return HandlerResponse(
+                answer=answer,
+                confidence=confidence,
+                handler_id=self.domain,
+                citations=citations,
+                elapsed_ms=elapsed_ms,
+                success=confidence >= self.confidence_threshold,
+                diagnostics={
+                    "handler": self.domain,
+                    "search_results": len(retrieved_docs),
+                    "confidence_threshold": self.confidence_threshold,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ {self.domain} 핸들러 처리 실패: {e}")
+            return self._fallback_response(query, str(e))
+
     
     def _fallback_response(self, query: str, error_msg: str = "") -> HandlerResponse:
         """
