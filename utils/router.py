@@ -296,7 +296,8 @@ class Router:
             
             # follow_up 요청 시 θ 완화 적용
             # ✅ request.follow_up 대신 context에서 follow_up 여부 확인
-            if context and context.get("follow_up", False) and top_candidates:
+            follow_up_detected = context and hasattr(context, 'turns') and len(context.turns) > 1
+            if follow_up_detected and top_candidates:
                 logger.info("후속 질문 감지: 컨피던스 임계값 -0.02 완화 적용")
             
             selection_time = time.time() - selection_start
