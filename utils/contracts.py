@@ -44,6 +44,16 @@ class ConversationContext(BaseModel):
     summary: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+    
+    def add_message(self, role, content, **kwargs):
+        """메시지 추가 메소드"""
+        new_turn = ChatTurn(role=role, content=content, timestamp=datetime.now())
+        self.turns.append(new_turn)
+        self.updated_at = datetime.now()
+        if len(self.turns) > 6:
+            self.turns = self.turns[-6:]
+
+
 
 class QueryRequest(BaseModel):
     model_config = ConfigDict(extra='allow')
@@ -163,6 +173,11 @@ class PerformanceMetrics(BaseModel):
     confidence_score: float = 0.0
     cache_hit: bool = False
     timestamp: datetime = Field(default_factory=datetime.now)
+
+    @property
+    def within_timebox(self) -> bool:
+        """15초 타임박스 준수 여부"""
+        return self.total_time_ms <= 15000
 
 # ===== 오류 처리 =====
 class ErrorResponse(BaseModel):
