@@ -389,12 +389,16 @@ class notice_handler(base_handler):
         # 기본 핸들러 로직 실행
         response = super().handle(request)
         
+        # QueryRequest에서 쿼리 텍스트 추출
+        query = getattr(request, 'query', None) or getattr(request, 'text', '')
+        
         # notice 도메인 특화: 시간 맥락 정보 보강
         if response.confidence >= self.confidence_threshold:
-            enhanced_answer = self._enhance_response_with_timing(response.answer, request.query)
+            enhanced_answer = self._enhance_response_with_timing(response.answer, query)
             response.answer = enhanced_answer
         
         return response
+
 
 
 # ================================================================
