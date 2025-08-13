@@ -832,21 +832,14 @@ async def process_query(user_input: str) -> Dict[str, Any]:
                 except Exception:
                         ctx = vars(ctx)  # 최후의 보루
 
-        # ✅ QueryRequest 전처리 (text→query, trace_id→metadata)
-        payload = {
-                "text": user_input,
-                "domain": domain,
-                "context": ctx,
-                "trace_id": trace_id
-        }
-        payload["query"] = payload.pop("text", payload.get("query", ""))
-        md = payload.get("metadata") or {}
-        if "trace_id" in payload:
-                md["trace_id"] = payload.pop("trace_id")
-        payload["metadata"] = md        
-
-        # 1. 쿼리 요청 객체 생성 (payload 사용)
-        query_request = QueryRequest(**payload)
+# 라우터 호출 (수정된 부분)
+# QueryRequest 객체를 직접 생성하지 않고, user_input과 context를 라우터에 전달합니다.
+        router = get_router()
+        handler_response = await router.route(
+            user_input=user_input,
+            context=ctx,
+            metadata={"trace_id": trace_id}
+        )
         
         # 2. ContextManager 사용 가능 여부 확인 및 컨텍스트 업데이트
         if st.session_state.context_manager:
