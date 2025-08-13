@@ -335,7 +335,7 @@ class cyber_handler(base_handler):
         
         # cyber 도메인 특화: 맞춤 추천 정보 보강
         if response.confidence >= self.confidence_threshold:
-            enhanced_answer = self._enhance_response_with_recommendations(response.answer, request.text)
+            enhanced_answer = self._enhance_response_with_recommendations(response.answer, request.query)
             response.answer = enhanced_answer
         
         return response
