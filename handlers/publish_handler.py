@@ -391,12 +391,16 @@ class publish_handler(base_handler):
         # 기본 핸들러 로직 실행
         response = super().handle(request)
         
+        # QueryRequest에서 쿼리 텍스트 추출
+        query = getattr(request, 'query', None) or getattr(request, 'text', '')
+        
         # publish 도메인 특화: 담당부서별 안내 정보 보강
         if response.confidence >= self.confidence_threshold:
-            enhanced_answer = self._enhance_response_with_document_guidance(response.answer, request.query)
+            enhanced_answer = self._enhance_response_with_document_guidance(response.answer, query)
             response.answer = enhanced_answer
         
         return response
+
 
 
 # ================================================================
