@@ -405,8 +405,11 @@ class base_handler(ABC):
         return HandlerResponse(
             answer=fallback_text,
             confidence=0.1,
-            sources=[],
-            metadata={
+            handler_id=self.domain,
+            citations=[],            # ✅ citations 필드 사용
+            elapsed_ms=0,           # ✅ elapsed_ms 필드 추가
+            success=False,          # ✅ success 필드 추가
+            diagnostics={           # ✅ diagnostics 필드 사용
                 "handler": self.domain,
                 "fallback": True,
                 "error": error_msg,
