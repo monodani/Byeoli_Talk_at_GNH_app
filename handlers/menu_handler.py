@@ -299,8 +299,8 @@ class menu_handler(base_handler):
         response = super().handle(request)
         
         # menu 도메인 특화: 시간 맥락 정보 보강
-        if response.confidence >= self.confidence_threshold and self._is_menu_related_query(request.text):
-            enhanced_answer = self._enhance_response_with_time_context(response.answer, request.text)
+        if response.confidence >= self.confidence_threshold and self._is_menu_related_query(request.query):
+            enhanced_answer = self._enhance_response_with_time_context(response.answer, request.query)
             response.answer = enhanced_answer
         
         return response
