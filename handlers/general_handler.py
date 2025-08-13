@@ -221,11 +221,17 @@ class general_handler(base_handler):
         # 기본 핸들러 로직 실행
         response = super().handle(request)
         
+        # QueryRequest에서 쿼리 텍스트 추출
+        query = getattr(request, 'query', None) or getattr(request, 'text', '')
+        
         # general 도메인 특화: 연락처 정보 보강
         if response.confidence >= self.confidence_threshold:
             # 재검색하여 연락처 정보 추가
-            search_results = self.hybrid_search(request.query, k=10)
-            enhanced_answer = self._enhance_response_with_contacts(response.answer, search_results)
+            search_results = self._hybrid_search(query, k=10)
+            # 검색 결과를 _enhance_response_with_contacts에 맞는 형태로 변환
+            formatted_search_results = [(doc.text, score, doc.metadata) for doc, score in search_results]
+            enhanced_answer = self._enhance_response_with_contacts(response.answer, formatted_search_results)
             response.answer = enhanced_answer
         
         return response
+
