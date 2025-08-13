@@ -262,29 +262,27 @@ class base_handler(ABC):
             
             # FAISS 결과 처리
             for rank, (doc, score) in enumerate(faiss_results, 1):
-                doc_id = f"{doc.source_id}_{doc.chunk_id}"
+                # ✅ getattr로 안전하게 chunk_id 접근
+                doc_id = f"{doc.source_id}_{getattr(doc, 'chunk_id', rank)}"
                 rrf_score = 1.0 / (k + rank)
-                doc_scores[doc_id] = doc_scores.get(doc_id, 0) + rrf_score * 0.6  # FAISS 가중치 60%
+                
                 if doc_id not in doc_scores:
                     doc_scores[doc_id] = {'doc': doc, 'score': 0}
-                doc_scores[doc_id]['doc'] = doc
+                doc_scores[doc_id]['score'] += rrf_score * 0.6  # FAISS 가중치 60%
             
             # BM25 결과 처리
             for rank, (doc, score) in enumerate(bm25_results, 1):
-                doc_id = f"{doc.source_id}_{doc.chunk_id}"
+                # ✅ getattr로 안전하게 chunk_id 접근
+                doc_id = f"{doc.source_id}_{getattr(doc, 'chunk_id', rank)}"
                 rrf_score = 1.0 / (k + rank)
-                if doc_id in doc_scores:
-                    doc_scores[doc_id] += rrf_score * 0.4  # BM25 가중치 40%
-                else:
-                    doc_scores[doc_id] = rrf_score * 0.4
-                    if isinstance(doc_scores[doc_id], (int, float)):
-                        doc_scores[doc_id] = {'doc': doc, 'score': doc_scores[doc_id]}
+                
+                if doc_id not in doc_scores:
+                    doc_scores[doc_id] = {'doc': doc, 'score': 0}
+                doc_scores[doc_id]['score'] += rrf_score * 0.4  # BM25 가중치 40%
             
             # 점수 기준 정렬
             if doc_scores:
-                combined = [(info['doc'] if isinstance(info, dict) else doc, 
-                           info['score'] if isinstance(info, dict) else info) 
-                          for info in doc_scores.values()]
+                combined = [(info['doc'], info['score']) for info in doc_scores.values()]
                 combined.sort(key=lambda x: x[1], reverse=True)
                 return combined[:min(k, len(combined))]
             else:
@@ -294,6 +292,7 @@ class base_handler(ABC):
             logger.error(f"❌ RRF 결합 실패: {e}")
             # 폴백: FAISS 결과 우선 반환
             return faiss_results[:k] if faiss_results else bm25_results[:k]
+
     
     def _calculate_confidence(self, query: str, retrieved_docs: List[Tuple[TextChunk, float]], 
                             response: str) -> float:
@@ -334,9 +333,10 @@ class base_handler(ABC):
                 
                 citation = Citation(
                     source_id=doc.source_id,
+                    text=snippet,  # ✅ text 필드 추가
+                    relevance_score=score,  # ✅ relevance_score 필드 추가
                     snippet=snippet,
-                    metadata=doc.metadata,
-                    relevance_score=score
+                    metadata=doc.metadata
                 )
                 citations.append(citation)
                 
