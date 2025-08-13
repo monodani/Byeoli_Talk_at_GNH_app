@@ -275,7 +275,7 @@ class Router:
             for handler_type in rule_candidates.keys():
                 rule_score = rule_scores.get(handler_type, 0.0)
                 llm_score = llm_scores.get(handler_type, 0.0)
-                combined_score = rule_score * 0.3 + llm_score * 0.7
+                confidence = rule_score * 0.3 + llm_score * 0.7
                 
                 candidate = HandlerCandidate(
                     domain=handler_type.value,  # ✅ domain 필드 사용
@@ -309,14 +309,19 @@ class Router:
             # 실패 시 general + fallback 반환
             return [
                 HandlerCandidate(
-                    handler_id=HandlerType.GENERAL,
-                    combined_score=0.5,
-                    reasoning="선정 실패 시 기본값"
+                    domain=HandlerType.GENERAL.value,
+                    confidence=0.1,
+                    reasoning="선정 실패 시 기본값",
+                    is_rule_based=True,
+                    metadata={"fallback": True}                    
                 ),
                 HandlerCandidate(
-                    handler_id=HandlerType.FALLBACK,
-                    combined_score=0.3,
-                    reasoning="안전망"
+                    domain=HandlerType.FALLBACK.value,
+                    confidence=0.05,
+                    reasoning="안전망",
+                    is_rule_based=True,
+                    metadata={"fallback": True, "type": "safety_net"}
+
                 )
             ]
     
@@ -369,14 +374,14 @@ class Router:
                 # 타임아웃 내에서 완료된 작업 수집
                 for future in as_completed(futures.keys(), timeout=timeout_seconds):
                     try:
-                        handler_id = futures[future]
+                        domain = futures[future]
                         response = future.result(timeout=0.1)  # 이미 완료된 작업이므로 즉시 반환
                         responses[handler_id] = response
                         
                         logger.info(f"✅ {handler_id.value} 핸들러 완료: confidence={response.confidence:.3f}")
                         
                     except Exception as e:
-                        handler_id = futures[future]
+                        domain = futures[future]
                         logger.error(f"❌ {handler_id.value} 핸들러 실행 실패: {e}")
                         continue
                 
@@ -441,7 +446,7 @@ class Router:
                     snippet="긴급 상황 시 기본 응답"
                 )],
                 confidence=0.1,
-                handler_id=HandlerType.FALLBACK,
+                domain=HandlerType.FALLBACK,
                 elapsed_ms=100,
                 diagnostics={"emergency_fallback": True, "error": str(e)}
             )
