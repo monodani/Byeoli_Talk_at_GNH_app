@@ -32,6 +32,9 @@ from datetime import datetime
 # 프로젝트 모듈
 from handlers.base_handler import base_handler
 from utils.contracts import QueryRequest, HandlerResponse, Citation, ConversationContext
+from utils.textifier import TextChunk
+
+
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -178,6 +181,47 @@ class fallback_handler(base_handler):
         """
         # fallback_handler는 주로 검색 결과 없이 작동하므로 빈 문자열 반환
         return ""
+
+    def _generate_prompt(
+        self,
+        query: str,
+        retrieved_docs: List[Tuple[TextChunk, float]]
+    ) -> str:
+        """
+        base_handler가 요구하는 추상 메서드 구현.
+        - fallback은 벡터검색 미의존이 기본이므로 retrieved_docs가 비어도 동작해야 함
+        - format_context()는 (text, score, metadata) 튜플 목록을 기대 → 어댑터 변환
+        """
+        # 1) 시스템 프롬프트
+        system_prompt = self.get_system_prompt()
+
+        # 2) 컨텍스트 변환: TextChunk -> (text, score, metadata)
+        try:
+            context_tuples = [
+                (doc.text, score, getattr(doc, "metadata", {}) or {})
+                for (doc, score) in (retrieved_docs or [])
+                if doc is not None
+            ]
+        except Exception:
+            # 안전장치: 문제가 생겨도 최소한 빈 컨텍스트로 진행
+            context_tuples = []
+
+        # 3) fallback 전용 컨텍스트(대개 공백)
+        context_block = self.format_context(context_tuples)
+
+        # 4) 최종 프롬프트
+        prompt = (
+            f"{system_prompt}\n\n"
+            f"---\n"
+            f"사용자 질문:\n{query}\n\n"
+            f"참고 자료(있을 경우):\n{context_block}\n\n"
+            f"지침:\n"
+            f"- 전문 핸들러가 답을 찾지 못했을 때의 응답을 생성합니다.\n"
+            f"- 담당부서 추천/연락처 제시 및 재질문 유도를 우선합니다.\n"
+            f"- 모르는 정보는 지어내지 말고 기관 기본 정보만 제공합니다.\n"
+        )
+        return prompt
+    
 
     def handle(self, request: QueryRequest) -> HandlerResponse:
         """
