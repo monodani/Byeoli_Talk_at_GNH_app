@@ -393,7 +393,7 @@ class publish_handler(base_handler):
         
         # publish 도메인 특화: 담당부서별 안내 정보 보강
         if response.confidence >= self.confidence_threshold:
-            enhanced_answer = self._enhance_response_with_document_guidance(response.answer, request.text)
+            enhanced_answer = self._enhance_response_with_document_guidance(response.answer, request.query)
             response.answer = enhanced_answer
         
         return response
