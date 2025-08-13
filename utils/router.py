@@ -85,52 +85,52 @@ class HandlerRegistry:
 
 
 class RoutingRules:
-    """키워드 기반 라우팅 규칙 정의"""
-    
-    # 도메인별 키워드 규칙
-    DOMAIN_KEYWORDS = {
-        HandlerType.SATISFACTION: {
-            "primary": ["만족도", "평가", "설문", "조사", "점수", "순위", "교육과정", "교과목"],
-            "secondary": ["피드백", "의견", "개선", "평점", "만족", "불만", "제안"]
-        },
-        HandlerType.GENERAL: {
-            "primary": ["학칙", "규정", "전결", "운영원칙", "연락처", "담당자", "부서", "전화번호"],
-            "secondary": ["규칙", "지침", "조례", "업무", "담당", "부서명", "연락", "문의"]
-        },
-        HandlerType.MENU: {
-            "primary": ["식단", "메뉴", "구내식당", "급식", "식사", "점심", "저녁"],
-            "secondary": ["음식", "밥", "식당", "카페테리아", "식당메뉴", "오늘메뉴"]
-        },
-        HandlerType.CYBER: {
-            "primary": ["사이버교육", "온라인교육", "이러닝", "나라배움터", "민간위탁"],
-            "secondary": ["원격교육", "인터넷교육", "온라인강의", "사이버강의", "디지털교육"]
-        },
-        HandlerType.PUBLISH: {
-            "primary": ["교육계획", "훈련계획", "2025계획", "2024평가", "종합평가서", "계획서"],
-            "secondary": ["교육방침", "운영계획", "성과평가", "계획", "평가서", "발행물"]
-        },
-        HandlerType.NOTICE: {
-            "primary": ["공지", "안내", "알림", "공지사항", "새소식", "업데이트", "벼리", "시설", "도서실","도서관","자료실","열람실","이용안내","이용시간","운영시간","휴관일", "대출","반납","연장","예약","연체","대출정지", "자료현황", "소장자료", "전자책", "E-BOOK"],
-            "secondary": ["소식", "정보", "통지", "발표", "알림", "공고", "캐릭터", "찾아오시는 길", "연혁", "점심시간","연체료","권수","기간","장기대출", "복사","부분복사","저작권","배상","분실","훼손","현금배상","현물변상"]
-        }
-    }
-    
-    @classmethod
-    def calculate_rule_score(cls, query: str, handler_type: HandlerType) -> float:
-        """규칙 기반 점수 계산"""
-        query_lower = query.lower()
-        keywords = cls.DOMAIN_KEYWORDS.get(handler_type, {})
-        
-        # Primary 키워드 매치 (가중치 0.7)
-        primary_matches = sum(1 for kw in keywords.get("primary", []) if kw in query_lower)
-        primary_score = min(primary_matches * 0.3, 0.7)
-        
-        # Secondary 키워드 매치 (가중치 0.3)
-        secondary_matches = sum(1 for kw in keywords.get("secondary", []) if kw in query_lower)
-        secondary_score = min(secondary_matches * 0.1, 0.3)
-        
-        total_score = primary_score + secondary_score
-        return min(total_score, 1.0)
+   """키워드 기반 라우팅 규칙 정의"""
+   
+   # 도메인별 키워드 규칙
+   DOMAIN_KEYWORDS = {
+       HandlerType.SATISFACTION: {
+           "primary": ["만족도", "평가", "설문", "조사", "점수", "순위", "교육과정", "교과목"],
+           "secondary": ["피드백", "의견", "개선", "평점", "만족", "불만", "제안"]
+       },
+       HandlerType.GENERAL: {
+           "primary": ["학칙", "규정", "전결", "운영원칙", "연락처", "담당자", "부서", "전화번호"],
+           "secondary": ["규칙", "지침", "조례", "업무", "담당", "부서명", "연락", "문의"]
+       },
+       HandlerType.MENU: {
+           "primary": ["식단", "메뉴", "구내식당", "급식", "식사", "점심", "저녁"],
+           "secondary": ["음식", "밥", "식당", "카페테리아", "식단메뉴", "오늘메뉴"]
+       },
+       HandlerType.CYBER: {
+           "primary": ["사이버교육", "온라인교육", "이러닝", "나라배움터", "민간위탁"],
+           "secondary": ["원격교육", "인터넷교육", "온라인강의", "사이버강의", "디지털교육"]
+       },
+       HandlerType.PUBLISH: {
+           "primary": ["교육계획", "훈련계획", "2025계획", "2024평가", "종합평가서", "계획서"],
+           "secondary": ["교육방침", "운영계획", "성과평가", "계획", "평가서", "발행물"]
+       },
+       HandlerType.NOTICE: {
+           "primary": ["공지", "안내", "알림", "공지사항", "새소식", "업데이트", "벼리", "시설", "도서실","도서관","자료실","열람실","이용안내","이용시간","운영시간","휴관일", "대출","반납","연장","예약","연체","대출정지", "자료현황", "소장자료", "전자책", "E-BOOK"],
+           "secondary": ["소식", "정보", "통지", "발표", "알림", "공고", "캐릭터", "찾아오시는 길", "연혁", "점심시간","연체료","권수","기간","장기대출", "복사","부분복사","저작권","배상","분실","훼손","현금배상","현물변상"]
+       }
+   }
+   
+   @staticmethod
+   def calculate_rule_score(query: str, handler_type: HandlerType) -> float:
+       """규칙 기반 점수 계산"""
+       query_lower = query.lower()
+       keywords = RoutingRules.DOMAIN_KEYWORDS.get(handler_type, {})  # ✅ cls → RoutingRules
+       
+       # Primary 키워드 매치 (가중치 0.7)
+       primary_matches = sum(1 for kw in keywords.get("primary", []) if kw in query_lower)
+       primary_score = min(primary_matches * 0.3, 0.7)
+       
+       # Secondary 키워드 매치 (가중치 0.3)
+       secondary_matches = sum(1 for kw in keywords.get("secondary", []) if kw in query_lower)
+       secondary_score = min(secondary_matches * 0.1, 0.3)
+       
+       total_score = primary_score + secondary_score
+       return min(total_score, 1.0)
 
 
 # ================================================================
@@ -220,7 +220,7 @@ class Router:
             
             # 응답에 성능 정보 추가
             final_response.diagnostics.update({
-                "routing_metrics": metrics.dict(),
+                "routing_metrics": metrics.model_dump(),
                 "selected_handlers": [h.domain for h in selected_handlers],
                 "timebox_compliance": metrics.within_timebox
             })
@@ -326,9 +326,58 @@ class Router:
             ]
     
     async def _llm_classify_handlers(self, query: str, candidate_types: List[HandlerType]) -> Dict[HandlerType, float]:
-        # ... (이 함수는 수정할 필요 없음)
-        # 기존 코드를 유지하되, 호출 시 `query` 변수를 사용하도록 수정
-        ...
+        """경량 LLM으로 핸들러 분류"""
+        try:
+            if not candidate_types:
+                return {}
+            
+            # 핸들러 설명
+            handler_descriptions = {
+                HandlerType.SATISFACTION: "교육만족도 조사결과, 평가분석, 성과측정, 점수",
+                HandlerType.GENERAL: "학칙, 전결규정, 담당자연락처, 조직업무",
+                HandlerType.MENU: "구내식당 식단표, 점심메뉴, 급식정보", 
+                HandlerType.CYBER: "사이버교육 일정, 나라배움터, 온라인강의",
+                HandlerType.PUBLISH: "교육계획, 교육과정 일정, 연간계획, 종합평가",
+                HandlerType.NOTICE: "공지사항, 알림, 최신소식, 시설, 안내, 위치, 주소"
+            }
+            
+            # LLM 프롬프트 생성
+            candidates_text = "\n".join([
+                f"- {h.value}: {handler_descriptions.get(h, '')}" 
+                for h in candidate_types
+            ])
+            
+            prompt = f"""사용자 질문: "{query}"
+
+다음 핸들러 중에서 질문에 가장 적합한 순서로 점수를 매겨주세요 (0.0~1.0):
+
+{candidates_text}
+
+JSON 형식으로 답변:
+{{"handler_name": score, ...}}"""
+
+            # LLM 호출
+            response = await self.llm_light.ainvoke(prompt)
+            
+            # JSON 파싱
+            import json
+            try:
+                scores_dict = json.loads(response.content)
+                result = {}
+                for handler_type in candidate_types:
+                    score = scores_dict.get(handler_type.value, 0.1)
+                    result[handler_type] = float(score)
+                return result
+            except:
+                # 파싱 실패 시 균등 배분
+                return {h: 0.5 for h in candidate_types}
+                
+        except Exception as e:
+            logger.warning(f"LLM 분류 실패: {e}")
+            # 실패 시 균등 배분
+            return {h: 0.5 for h in candidate_types}
+
+
     
     async def _execute_handlers_parallel(
         self, 
