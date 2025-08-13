@@ -278,12 +278,16 @@ class Router:
                 combined_score = rule_score * 0.3 + llm_score * 0.7
                 
                 candidate = HandlerCandidate(
-                    handler_id=handler_type,
-                    rule_score=rule_score,
-                    llm_score=llm_score,
-                    combined_score=combined_score,
-                    reasoning=f"규칙:{rule_score:.2f} + LLM:{llm_score:.2f} = {combined_score:.2f}"
-                )
+                    domain=handler_type.value,  # ✅ domain 필드 사용
+                    confidence=combined_score,  # ✅ confidence 필드 사용
+                    reasoning=f"규칙:{rule_score:.2f} + LLM:{llm_score:.2f} = {combined_score:.2f}",
+                    is_rule_based=False,
+                    metadata={
+                        "rule_score": rule_score,
+                        "llm_score": llm_score,
+                        "combined_score": combined_score
+                    }
+                )   
                 candidates.append(candidate)
             
             # 점수 기준 정렬 후 Top-2 선정
