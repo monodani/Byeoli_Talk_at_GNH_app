@@ -7,7 +7,7 @@
 from typing import Optional, List, Dict, Any, Union, Literal
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator 
 import json
 
 # ===== 기본 Enum =====
@@ -54,6 +54,21 @@ class QueryRequest(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     max_results: int = Field(default=5, ge=1, le=20)
     confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_payload(cls, data):
+        if isinstance(data, dict):
+            # ✅ text -> query 치환
+            if "query" not in data and "text" in data:
+                data["query"] = data.pop("text")
+            # ✅ trace_id는 metadata로 흡수
+            if "trace_id" in data:
+                md = dict(data.get("metadata") or {})
+                md["trace_id"] = data.pop("trace_id")
+                data["metadata"] = md
+        return data
+        
 
 class Citation(BaseModel):
     model_config = ConfigDict(extra='allow')
