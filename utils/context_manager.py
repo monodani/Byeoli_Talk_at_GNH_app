@@ -22,6 +22,8 @@ import openai
 from .config import get_config
 from .contracts import ConversationContext, ChatTurn, QueryRequest
 from .logging_utils import get_logger, log_timer
+from utils.contracts import ConversationContext, ChatTurn, QueryRequest, MessageRole
+
 
 logger = get_logger(__name__)
 config = get_config()
@@ -641,6 +643,7 @@ class ContextManager:
     def update_context(self, conversation_id: str, role, content: str) -> ConversationContext:
         """컨텍스트 업데이트 메소드 (app.py 호환성)"""
         try:
+            from utils.contracts import MessageRole
             role_value = role.value if hasattr(role, 'value') else str(role)
             return self.add_message(conversation_id, role_value, content)
         except Exception as e:
