@@ -21,6 +21,7 @@ from typing import List, Dict, Any, Tuple, Optional
 # 프로젝트 모듈
 from handlers.base_handler import base_handler
 from utils.contracts import QueryRequest, HandlerResponse
+from utils.textifier import TextChunk
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -338,6 +339,47 @@ class notice_handler(base_handler):
             return enhanced_response
         
         return base_response
+
+    def _generate_prompt(
+        self,
+        query: str,
+        retrieved_docs: List[Tuple[TextChunk, float]]
+    ) -> str:
+        """
+        base_handler가 요구하는 추상 메서드 구현.
+        - retrieved_docs: (TextChunk, score) 튜플 리스트
+        - format_context()는 (text, score, metadata) 튜플 리스트를 기대하므로 어댑터 변환 필요
+        """
+        # 1) 시스템 프롬프트
+        system_prompt = self.get_system_prompt()
+
+        # 2) 컨텍스트 변환: TextChunk -> (text, score, metadata)
+        try:
+            context_tuples = [
+                (doc.text, score, getattr(doc, "metadata", {}) or {})
+                for (doc, score) in (retrieved_docs or [])
+                if doc is not None
+            ]
+        except Exception:
+            # 안전장치: 문제가 생겨도 최소한 빈 컨텍스트로 진행
+            context_tuples = []
+
+        # 3) notice 전용 컨텍스트 문자열 생성
+        context_block = self.format_context(context_tuples)
+
+        # 4) 최종 프롬프트 결합 (최소 형태)
+        prompt = (
+            f"{system_prompt}\n\n"
+            f"---\n"
+            f"사용자 질문:\n{query}\n\n"
+            f"참고 자료(공지사항):\n{context_block}\n\n"
+            f"지침:\n"
+            f"- 제공된 참고 자료 내 정보만 사용하세요.\n"
+            f"- 마감일/긴급 키워드를 우선 강조하세요.\n"
+            f"- 날짜·시간은 반드시 YYYY-MM-DD HH:MM 형식으로 명시하세요.\n"
+        )
+        return prompt
+    
     
     def handle(self, request: QueryRequest) -> HandlerResponse:
         """
