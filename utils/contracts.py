@@ -45,11 +45,35 @@ class ConversationContext(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
     
+    # ✅ 수정: ContextManager 호환성을 위한 별칭 속성들 추가
+    @property
+    def recent_messages(self) -> List[ChatTurn]:
+        """turns의 별칭 (ContextManager 호환성)"""
+        return self.turns
+    
+    @recent_messages.setter
+    def recent_messages(self, value: List[ChatTurn]):
+        """turns 설정 (ContextManager 호환성)"""
+        self.turns = value
+    
     def add_message(self, role, content, **kwargs):
         """메시지 추가 메소드"""
-        new_turn = ChatTurn(role=role, content=content, timestamp=datetime.now())
+        from utils.contracts import MessageRole  # 순환 import 방지
+        
+        # role이 문자열인 경우 MessageRole로 변환
+        if isinstance(role, str):
+            role = MessageRole(role)
+        
+        new_turn = ChatTurn(
+            role=role,
+            content=content, 
+            timestamp=datetime.now(),
+            metadata=kwargs
+        )
         self.turns.append(new_turn)
         self.updated_at = datetime.now()
+        
+        # 최근 6개 턴만 유지
         if len(self.turns) > 6:
             self.turns = self.turns[-6:]
 
@@ -173,11 +197,18 @@ class PerformanceMetrics(BaseModel):
     confidence_score: float = 0.0
     cache_hit: bool = False
     timestamp: datetime = Field(default_factory=datetime.now)
+    
+    # ✅ 수정: router.py에서 사용하는 필드명들 추가
+    total_time_ms: int = 0
+    router_time_ms: int = 0
+    handler_time_ms: int = 0
 
     @property
     def within_timebox(self) -> bool:
         """15초 타임박스 준수 여부"""
-        return self.total_time_ms <= 15000
+        # ✅ 수정: total_time_ms 필드 사용 (또는 total_time * 1000)
+        time_ms = self.total_time_ms if self.total_time_ms > 0 else int(self.total_time * 1000)
+        return time_ms <= 15000
 
 # ===== 오류 처리 =====
 class ErrorResponse(BaseModel):
