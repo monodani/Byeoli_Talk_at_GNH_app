@@ -1,4 +1,4 @@
-# BYEOLI_TALK_AT_GNH_app Architecture
+# BYEOLI_TALK_AT_GNHRD_app Architecture
 
 ## 개요
 
