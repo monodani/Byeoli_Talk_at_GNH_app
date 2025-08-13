@@ -31,7 +31,7 @@ from datetime import datetime
 
 # 프로젝트 모듈
 from handlers.base_handler import base_handler
-from utils.contracts import QueryRequest, HandlerResponse, Citation, ConversationContext
+from utils.contracts import QueryRequest, HandlerCandidate, HandlerResponse, Citation, ConversationContext
 from utils.textifier import TextChunk
 
 
@@ -249,6 +249,8 @@ class fallback_handler(base_handler):
             citation = Citation(
                 source_id=f"fallback/department_contact/{department}",
                 source_file="fallback_handler.py",
+                text="긴급 상황 시 기본 응답",
+                relevance_score=0.0,
                 content=f"담당부서: {department}, 연락처: {contact}, 설명: {description}",
                 page=0
             )
@@ -268,6 +270,8 @@ class fallback_handler(base_handler):
             citation = Citation(
                 source_id="fallback/institute_info",
                 source_file="fallback_handler.py",
+                text="긴급 상황시 기본 응답",
+                relevance_score=0.0,
                 content=f"기관명: {self.institute_info['name']}, 대표 전화: {self.institute_info['main_phone']}",
                 page=0
             )
