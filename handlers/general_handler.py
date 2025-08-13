@@ -147,7 +147,7 @@ class general_handler(base_handler):
         
         return final_context
 
-    def _generate_prompt(self, query: str, retrieved_docs: List[Tuple[TextChunk, float]])
+    def _generate_prompt(self, query: str, retrieved_docs: List[Tuple[TextChunk, float]]) -> str:
         """
         일반 도메인에 특화된 최종 프롬프트 생성
         """
