@@ -630,6 +630,13 @@ class ContextManager:
             "messages": [asdict(msg) for msg in context.recent_messages],
             "updated_at": context.updated_at.isoformat() if context.updated_at else None
         }
+        
+
+    def update_context(self, conversation_id: str, role, content: str):
+        """컨텍스트 업데이트 메소드"""
+        return self.add_message(conversation_id, role.value, content)
+
+
 
 
 # ================================================================
