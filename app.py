@@ -593,7 +593,7 @@ def render_sidebar():
         
         # 시스템 상태 표시
         status = st.session_state.system_status
-        if status["success"]:
+        if status.get("success", False):
             if status.get("mode") == "full":
                 st.markdown('<div class="status-indicator status-healthy">🟢 정상 운영</div>', unsafe_allow_html=True)
             elif status.get("mode") == "limited":
