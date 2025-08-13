@@ -18,6 +18,7 @@ from typing import List, Dict, Any, Tuple
 # 프로젝트 모듈
 from handlers.base_handler import base_handler
 from utils.contracts import QueryRequest, HandlerResponse
+from utils.textifier import TextChunk
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
