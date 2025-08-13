@@ -289,6 +289,8 @@ class fallback_handler(base_handler):
         return HandlerResponse(
             answer=answer,
             confidence=0.00, # Fallback 핸들러의 컨피던스 임계값은 항상 0.00
+            domain=self.domain,      # ✅ domain 필드 사용
+            success=True,            # ✅ success 필드 추가
             handler_id=self.domain,
             citations=citations,
             elapsed_ms=elapsed_ms
