@@ -447,8 +447,9 @@ class Router:
                     snippet="긴급 상황 시 기본 응답"
                 )],
                 confidence=0.1,
-                domain=HandlerType.FALLBACK,
+                handler_id=HandlerType.FALLBACK.value,
                 elapsed_ms=100,
+                success=False,
                 diagnostics={"emergency_fallback": True, "error": str(e)}
             )
 
