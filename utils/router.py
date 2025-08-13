@@ -190,11 +190,11 @@ class Router:
 
             # 2단계 직전, request 만들기 전에 (selected_handlers 구한 뒤)
             trace_id = kwargs.get("trace_id") or str(uuid.uuid4())
-            primary_domain = selected_handlers[0].handler_id if selected_handlers else HandlerType.FALLBACK
+            primary_domain = HandlerType(selected_handlers[0].domain) if selected_handlers else HandlerType.FALLBACK
 
             
             # ✅ 2단계: 선정된 핸들러들을 위해 QueryRequest 객체 생성
-            primary_domain = selected_handlers[0].handler_id if selected_handlers else HandlerType.FALLBACK
+            primary_domain = HandlerType(selected_handlers[0].domain) if selected_handlers else HandlerType.FALLBACK
             request = QueryRequest(
                 text=user_input,
                 domain=primary_domain.value, # ✅ 수정: 이제 domain에 올바른 값이 할당됨
@@ -221,7 +221,7 @@ class Router:
             # 응답에 성능 정보 추가
             final_response.diagnostics.update({
                 "routing_metrics": metrics.dict(),
-                "selected_handlers": [h.handler_id.value for h in selected_handlers],
+                "selected_handlers": [h.domain for h in selected_handlers],
                 "timebox_compliance": metrics.within_timebox
             })
             
@@ -279,13 +279,13 @@ class Router:
                 
                 candidate = HandlerCandidate(
                     domain=handler_type.value,  # ✅ domain 필드 사용
-                    confidence=combined_score,  # ✅ confidence 필드 사용
+                    confidence=confidence,  # ✅ confidence 필드 사용
                     reasoning=f"규칙:{rule_score:.2f} + LLM:{llm_score:.2f} = {combined_score:.2f}",
                     is_rule_based=False,
                     metadata={
                         "rule_score": rule_score,
                         "llm_score": llm_score,
-                        "combined_score": combined_score
+                        "combined_score": confidence
                     }
                 )   
                 candidates.append(candidate)
@@ -300,7 +300,7 @@ class Router:
                 logger.info("후속 질문 감지: 컨피던스 임계값 -0.02 완화 적용")
             
             selection_time = time.time() - selection_start
-            logger.info(f"🎯 핸들러 선정 완료 ({selection_time:.3f}s): {[c.handler_id.value for c in top_candidates]}")
+            logger.info(f"🎯 핸들러 선정 완료 ({selection_time:.3f}s): {[c.domain for c in top_candidates]}")
             
             return top_candidates
             
@@ -359,17 +359,17 @@ class Router:
                 # Future 생성
                 futures = {}
                 for candidate in candidates:
-                    handler = self.registry.get_handler(candidate.handler_id)
+                    handler = self.registry.get_handler(HandlerType(candidate.domain))
                     if handler:
                         # ✅ 이제 `request` 객체는 `domain`을 포함하고 있음
                         # follow_up 요청 시 컨피던스 임계값 완화
                         if request.follow_up:
                             original_threshold = handler.confidence_threshold
                             handler.confidence_threshold = max(0.0, original_threshold - 0.02)
-                            logger.debug(f"임계값 완화: {candidate.handler_id.value} {original_threshold:.2f} → {handler.confidence_threshold:.2f}")
+                            logger.debug(f"임계값 완화: {candidate.domain} {original_threshold:.2f} → {handler.confidence_threshold:.2f}")
                         
                         future = executor.submit(handler.handle, request)
-                        futures[future] = candidate.handler_id
+                        futures[future] = HandlerType(candidate.domain)
                 
                 # 타임아웃 내에서 완료된 작업 수집
                 for future in as_completed(futures.keys(), timeout=timeout_seconds):
