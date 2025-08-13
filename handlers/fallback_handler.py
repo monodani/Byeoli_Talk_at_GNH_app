@@ -228,9 +228,9 @@ class fallback_handler(base_handler):
         fallback_handler의 메인 처리 로직
         """
         start_time = time.time()
-        logger.info(f"🛡️ fallback_handler 작동: {request.text}")
+        logger.info(f"🛡️ fallback_handler 작동: {request.query}")
 
-        matched_info = self._match_category(request.text)
+        matched_info = self._match_category(request.query)
         
         if matched_info:
             # 질문 카테고리 매칭에 성공한 경우
