@@ -126,9 +126,13 @@ class satisfaction_handler(base_handler):
         """
         만족도 질의 처리 (follow_up 완화 로직 포함)
         """
+        # QueryRequest에서 필요한 정보 추출
+        query = getattr(request, 'query', None) or getattr(request, 'text', '')
+        follow_up = getattr(request, 'follow_up', False)
+        
         # follow_up인 경우 컨피던스 임계값 완화
         original_threshold = self.confidence_threshold
-        if request.follow_up:
+        if follow_up:
             self.confidence_threshold = max(0.0, original_threshold - 0.02)
             logger.info(f"🔄 Follow-up 질의: 임계값 완화 {original_threshold} → {self.confidence_threshold}")
         
@@ -139,17 +143,22 @@ class satisfaction_handler(base_handler):
             # 만족도 특화 후처리
             if response.confidence >= self.confidence_threshold:
                 # 응답에 만족도 도메인 힌트 추가
-                if "점" in response.answer and any(keyword in request.query for keyword in ["만족도", "점수", "평가"]):
+                if "점" in response.answer and any(keyword in query for keyword in ["만족도", "점수", "평가"]):
                     # 만족도 점수가 포함된 답변인 경우 단위 표준화
                     response.answer = self._standardize_satisfaction_scores(response.answer)
                 
                 logger.info(f"✅ 만족도 답변 생성 완료 (confidence={response.confidence:.3f})")
             else:
                 # 낮은 컨피던스인 경우 재질문 유도
-                response.answer = self._generate_reask_response(request.query, response.confidence)
+                response.answer = self._generate_reask_response(query, response.confidence)
                 logger.warning(f"⚠️ 낮은 컨피던스로 재질문 유도 (confidence={response.confidence:.3f})")
             
             return response
+            
+        finally:
+            # 임계값 복원
+            self.confidence_threshold = original_threshold
+
             
         finally:
             # 임계값 복원
