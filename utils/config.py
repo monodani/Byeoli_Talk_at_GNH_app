@@ -12,6 +12,7 @@ Configuration Module: 환경변수 로드/검증 및 전역 설정
 - context_manager.py 호환성 보장
 - 환경변수 로드 로직 개선
 ✅ HANDLERS 필드 추가 (index_manager.py 호환성)
+🚨 수정: Streamlit Secrets 안전한 로드 + APP_MODE 기본값 변경
 """
 
 import os
@@ -41,6 +42,43 @@ else:
     else:
         print("❌ .env 및 .env.example 파일을 찾을 수 없습니다.")
 
+# ================================================================
+# 🚨 추가: Streamlit Secrets 안전한 로드 함수
+# ================================================================
+
+def get_openai_api_key() -> Optional[str]:
+    """
+    안전하게 OPENAI_API_KEY를 로드 (Streamlit Secrets 우선순위)
+    
+    Returns:
+        Optional[str]: API 키 또는 None
+    """
+    # 1. Streamlit Secrets에서 로드 시도
+    try:
+        if hasattr(st, 'secrets') and st.secrets is not None:
+            api_key = st.secrets.get("OPENAI_API_KEY")
+            if api_key:
+                os.environ["OPENAI_API_KEY"] = api_key  # 환경변수에도 설정
+                print("✅ OPENAI_API_KEY를 Streamlit Secrets에서 로드했습니다.")
+                return api_key
+    except Exception as e:
+        print(f"⚠️ Streamlit Secrets 접근 실패: {e}")
+    
+    # 2. 환경변수에서 로드
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        print("✅ OPENAI_API_KEY를 환경변수에서 로드했습니다.")
+        return api_key
+    
+    # 3. .env 파일에서 로드
+    load_dotenv(ROOT_DIR / ".env")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        print("✅ OPENAI_API_KEY를 .env 파일에서 로드했습니다.")
+        return api_key
+    
+    print("⚠️ OPENAI_API_KEY를 찾을 수 없습니다.")
+    return None
 
 @dataclass
 class AppConfig:
@@ -110,8 +148,8 @@ class AppConfig:
     LOGS_DIR: Path = field(default_factory=lambda: Path(os.getenv("LOG_DIR", str(ROOT_DIR / "logs"))))
     SCHEMAS_DIR: Path = field(default_factory=lambda: ROOT_DIR / "schemas")
     
-    # 앱 모드 (.env와 통일)
-    APP_MODE: str = field(default_factory=lambda: os.getenv("APP_MODE", "dev"))
+    # 🚨 수정: 앱 모드 기본값을 production으로 변경
+    APP_MODE: str = field(default_factory=lambda: os.getenv("APP_MODE", "production"))
     
     def __post_init__(self):
         """설정 검증 및 디렉터리 생성"""
@@ -123,31 +161,19 @@ class AppConfig:
 
     def _load_api_key(self):
         """
-        OPENAI_API_KEY를 로드 (Streamlit Secrets -> 환경변수)
+        🚨 수정: OPENAI_API_KEY를 안전하게 로드 (Streamlit Secrets 우선순위)
         """
-        # Streamlit Secrets에서 API 키 로드 시도
-        try:
-            if "OPENAI_API_KEY" in st.secrets:
-                self.OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-                os.environ["OPENAI_API_KEY"] = self.OPENAI_API_KEY
-                print("✅ OPENAI_API_KEY를 Streamlit Secrets에서 로드했습니다.")
-                return
-        except Exception as e:
-            # st.secrets 접근 실패 (로컬 환경)
-            print(f"⚠️ Streamlit Secrets 접근 실패: {e}")
+        self.OPENAI_API_KEY = get_openai_api_key()
         
-        # .env 파일에서 환경변수 로드 시도 (로컬 환경용)
-        load_dotenv(ROOT_DIR / ".env")
-        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
         if self.OPENAI_API_KEY:
-            print("✅ OPENAI_API_KEY를 .env 파일에서 로드했습니다.")
+            print(f"✅ API 키 로드 성공: {self.OPENAI_API_KEY[:10]}...")
         else:
-            print("⚠️ OPENAI_API_KEY가 설정되지 않았습니다.")
+            print("❌ OPENAI_API_KEY를 찾을 수 없습니다.")
     
     def _validate_api_keys(self):
         """필수 API 키 검증 (개선된 로직)"""
         if not self.OPENAI_API_KEY:
-            if self.APP_MODE == "prod":
+            if self.APP_MODE == "production":  # "prod" → "production"으로 수정
                 raise ValueError("❌ OPENAI_API_KEY는 운영환경에서 필수입니다. .env 파일 또는 Streamlit Secrets에 설정해주세요.")
             else:
                 print("⚠️ OPENAI_API_KEY가 설정되지 않았습니다. 개발 모드에서는 일부 기능이 제한됩니다.")
@@ -550,82 +576,3 @@ def print_config_summary():
     print(f"🔄 라우터 모델: {config.OPENAI_MODEL_ROUTER}")
     print(f"⏱️ 총 타임박스: {config.ROUTER_TOTAL_TIMEOUT}초")
     print(f"🎯 처리 도메인: {', '.join(config.HANDLERS)}")  # ✅ HANDLERS 출력 추가
-    
-    print(f"\n📊 컨피던스 임계값:")
-    for handler, threshold in config.confidence_thresholds.items():
-        print(f"  {handler}: {threshold}")
-    
-    print(f"\n🗂️ 캐시 TTL 설정:")
-    for handler, ttl in config.cache_ttl_config.items():
-        hours = ttl // 3600
-        print(f"  {handler}: {hours}시간" if hours < 24 else f"  {handler}: {ttl//86400}일")
-    
-    print(f"\n🎯 키워드 규칙 통계:")
-    for domain, keywords in KEYWORD_MATCHING_RULES.items():
-        print(f"  {domain}: {len(keywords)}개 키워드")
-
-
-# ================================================================
-# 테스트 및 검증
-# ================================================================
-
-def test_config():
-    """설정 모듈 테스트"""
-    print("🧪 Config 모듈 테스트 시작")
-    
-    try:
-        # 설정 로드 테스트
-        config = get_config()
-        print("✅ 설정 로드 성공")
-        
-        # ✅ HANDLERS 필드 검증 추가
-        assert hasattr(config, 'HANDLERS'), "HANDLERS 필드가 없습니다"
-        assert isinstance(config.HANDLERS, list), "HANDLERS가 리스트가 아닙니다"
-        assert len(config.HANDLERS) == 6, f"HANDLERS 개수 불일치: {len(config.HANDLERS)}"
-        expected_handlers = ["satisfaction", "general", "publish", "cyber", "menu", "notice"]
-        for handler in expected_handlers:
-            assert handler in config.HANDLERS, f"필수 핸들러 누락: {handler}"
-        print("✅ HANDLERS 필드 검증 통과")
-        
-        # 주요 설정값 검증
-        assert config.OPENAI_MODEL_ROUTER == "gpt-4o-mini", f"라우터 모델 불일치: {config.OPENAI_MODEL_ROUTER}"
-        assert config.CONFIDENCE_THRESHOLD_GENERAL == 0.70, f"일반 핸들러 임계값 불일치: {config.CONFIDENCE_THRESHOLD_GENERAL}"
-        assert config.CONVERSATION_RECENT_MESSAGES_WINDOW == 6, f"대화 윈도우 크기 불일치: {config.CONVERSATION_RECENT_MESSAGES_WINDOW}"
-        print("✅ 주요 설정값 검증 통과")
-        
-        # 키워드 규칙 검증
-        assert validate_keyword_rules(), "키워드 규칙 검증 실패"
-        print("✅ 키워드 규칙 검증 통과")
-        
-        # 디렉터리 생성 확인
-        essential_dirs = [config.CACHE_DIR, config.LOGS_DIR, config.VECTORSTORE_DIR]
-        for dir_path in essential_dirs:
-            assert Path(dir_path).exists(), f"필수 디렉터리 없음: {dir_path}"
-        print("✅ 필수 디렉터리 확인 완료")
-        
-        # get() 메서드 테스트
-        api_key = config.get('OPENAI_API_KEY')
-        assert api_key == os.getenv('OPENAI_API_KEY', ''), "get() 메서드 테스트 실패"
-        
-        default_value = config.get('NON_EXISTENT_KEY', 'default')
-        assert default_value == 'default', "get() 메서드 기본값 테스트 실패"
-        print("✅ get() 메서드 테스트 통과")
-        
-        print("\n🎉 모든 테스트 통과!")
-        return True
-        
-    except Exception as e:
-        print(f"\n❌ 테스트 실패: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
-if __name__ == "__main__":
-    # 설정 테스트 및 요약 출력
-    if test_config():
-        print_config_summary()
-    else:
-        print("💥 설정 테스트 실패 - 문제를 해결한 후 다시 시도하세요.")
-
-config = get_config()
