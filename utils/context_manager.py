@@ -433,8 +433,8 @@ class ContextManager:
             cls._instance = super().__new__(cls)
         return cls._instance
         def __init__(self):
-        if self._initialized:
-            return
+            if self._initialized:
+                return
             
         # 🚨 핵심 수정: Streamlit Secrets 우선순위로 API 키 가져오기
         from utils.config import get_openai_api_key
