@@ -88,19 +88,20 @@ class VectorStoreMetadata:
     
     def _init_embeddings(self) -> Optional[Any]:
         """
-        OpenAIEmbeddings 안전한 초기화 (호환성 수정)
+        OpenAIEmbeddings 안전한 초기화 (Streamlit Secrets 지원)
         """
         try:
-            # LangChain OpenAI Embeddings 호환성 수정
             from langchain_openai import OpenAIEmbeddings
             
-            # API 키 확인
-            api_key = config.OPENAI_API_KEY
+            # 🚨 핵심 수정: 동적으로 API 키 가져오기
+            from utils.config import get_openai_api_key
+            api_key = get_openai_api_key()
+            
             if not api_key:
                 logger.warning("⚠️ OPENAI_API_KEY가 설정되지 않아 임베딩을 사용할 수 없습니다.")
                 return None
             
-            # 최소한의 매개변수로 안전한 초기화 (proxies 오류 방지)
+            # 최소한의 매개변수로 안전한 초기화
             embeddings = OpenAIEmbeddings(
                 api_key=api_key,
                 model=config.EMBEDDING_MODEL
@@ -204,12 +205,15 @@ class IndexManager:
 
     def _init_global_embeddings(self) -> Optional[Any]:
         """
-        글로벌 OpenAIEmbeddings 안전한 초기화
+        글로벌 OpenAIEmbeddings 안전한 초기화 (Streamlit Secrets 지원)
         """
         try:
             from langchain_openai import OpenAIEmbeddings
             
-            api_key = config.OPENAI_API_KEY
+            # 🚨 핵심 수정: 동적으로 API 키 가져오기
+            from utils.config import get_openai_api_key
+            api_key = get_openai_api_key()
+            
             if not api_key:
                 logger.warning("⚠️ OPENAI_API_KEY가 설정되지 않아 임베딩 기능이 제한됩니다.")
                 return None
