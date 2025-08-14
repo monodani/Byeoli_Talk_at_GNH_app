@@ -575,4 +575,11 @@ def print_config_summary():
     print(f"🤖 메인 모델: {config.OPENAI_MODEL_MAIN}")
     print(f"🔄 라우터 모델: {config.OPENAI_MODEL_ROUTER}")
     print(f"⏱️ 총 타임박스: {config.ROUTER_TOTAL_TIMEOUT}초")
-    print(f"🎯 처리 도메인: {', '.join(config.HANDLERS)}")  # ✅ HANDLERS 출력 추가
+    print(f"🎯 처리 도메인: {', '.join(config.HANDLERS)}")
+    
+    print(f"\n📊 컨피던스 임계값:")
+    for handler, threshold in config.confidence_thresholds.items():
+        print(f"  {handler}: {threshold}")
+    
+    print(f"\n🗂️ 캐시 TTL 설정:")
+    for handler, ttl in config.cache_ttl_config.items():
