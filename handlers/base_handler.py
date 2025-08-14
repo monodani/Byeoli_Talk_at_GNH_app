@@ -78,12 +78,15 @@ class base_handler(ABC):
     
     def _init_embeddings(self) -> Optional[Any]:
         """
-        OpenAIEmbeddings 안전한 초기화 (호환성 수정)
+        OpenAIEmbeddings 안전한 초기화 (Streamlit Secrets 지원)
         """
         try:
             from langchain_openai import OpenAIEmbeddings
             
-            api_key = config.OPENAI_API_KEY
+            # ✅ 수정: get_openai_api_key() 함수 사용
+            from utils.config import get_openai_api_key
+            api_key = get_openai_api_key()
+            
             if not api_key:
                 logger.warning(f"⚠️ {self.domain} 핸들러: OPENAI_API_KEY가 설정되지 않아 임베딩을 사용할 수 없습니다.")
                 return None
@@ -102,13 +105,17 @@ class base_handler(ABC):
         except Exception as e:
             logger.error(f"❌ {self.domain} 핸들러: OpenAIEmbeddings 초기화 실패: {e}")
             return None
+
     
     def _init_llm(self) -> Optional[ChatOpenAI]:
         """
-        ChatOpenAI LLM 안전한 초기화
+        ChatOpenAI LLM 안전한 초기화 (Streamlit Secrets 지원)
         """
         try:
-            api_key = config.OPENAI_API_KEY
+            # ✅ 수정: get_openai_api_key() 함수 사용
+            from utils.config import get_openai_api_key
+            api_key = get_openai_api_key()
+            
             if not api_key:
                 logger.warning(f"⚠️ {self.domain} 핸들러: OPENAI_API_KEY가 설정되지 않아 LLM을 사용할 수 없습니다.")
                 return None
@@ -126,23 +133,7 @@ class base_handler(ABC):
         except Exception as e:
             logger.error(f"❌ {self.domain} 핸들러: ChatOpenAI 초기화 실패: {e}")
             return None
-    
-    def _get_vectorstore(self) -> Optional[FAISS]:
-        """
-        IndexManager를 통해 벡터스토어 획득 (중앙집중식)
-        
-        Returns:
-            Optional[FAISS]: 벡터스토어 인스턴스 또는 None
-        """
-        try:
-            vectorstore = self.index_manager.get_vectorstore(self.domain)
-            if vectorstore is None:
-                logger.warning(f"⚠️ {self.domain} 벡터스토어를 찾을 수 없습니다")
-                return None
-            return vectorstore
-        except Exception as e:
-            logger.error(f"❌ {self.domain} 벡터스토어 획득 실패: {e}")
-            return None
+
     
     def _get_bm25(self) -> Optional[BM25Okapi]:
         """
