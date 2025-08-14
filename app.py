@@ -722,6 +722,67 @@ def render_sidebar():
             st.metric("로드 시간", f"{perf.get('load_time', 0):.2f}초")
             st.metric("로드된 도메인", f"{perf.get('loaded_domains', 0)}개")
 
+        # 🚨 임시 디버깅 섹션 추가 (개발 모드에서만)
+        if config.APP_MODE != "production":
+            st.markdown("---")
+            st.markdown("### 🛠️ 디버깅 도구")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🔄 ContextManager 재시작", use_container_width=True):
+                    try:
+                        from utils.context_manager import ContextManager
+                        ContextManager.reset_instance()
+                        st.session_state.context_manager = ContextManager()
+                        st.success("✅ ContextManager 재시작됨")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ 재시작 실패: {e}")
+            
+            with col2:
+                if st.button("🗑️ 세션 전체 초기화", use_container_width=True):
+                    for key in list(st.session_state.keys()):
+                        del st.session_state[key]
+                    st.success("✅ 세션 초기화됨")
+                    st.rerun()
+            
+            # ContextManager 상태 확인
+            st.markdown("**🔍 디버그 정보:**")
+            cm = st.session_state.get('context_manager')
+            if cm:
+                has_conversations = hasattr(cm, 'conversations')
+                st.write(f"• **ContextManager**: {'✅' if cm else '❌'}")
+                st.write(f"• **conversations 속성**: {'✅' if has_conversations else '❌'}")
+                if has_conversations:
+                    st.write(f"• **대화 수**: {len(cm.conversations)}")
+                st.write(f"• **초기화 상태**: {'✅' if getattr(cm, '_initialized', False) else '❌'}")
+            else:
+                st.write("• **ContextManager**: ❌ 없음")
+            
+            # 벡터스토어 상태 확인
+            try:
+                from utils.index_manager import get_index_manager
+                manager = get_index_manager()
+                status_check = manager.health_check()
+                st.write(f"• **로드된 인덱스**: {status_check.get('loaded_domains', 0)}/{status_check.get('total_domains', 0)}")
+                
+                # 도메인별 상태 간단히 표시
+                failed_domains = []
+                for domain, detail in status_check.get('domains_detail', {}).items():
+                    if not detail.get('loaded', False):
+                        failed_domains.append(domain)
+                
+                if failed_domains:
+                    st.write(f"• **실패 도메인**: {', '.join(failed_domains)}")
+                else:
+                    st.write("• **모든 도메인**: ✅ 정상")
+                    
+            except Exception as e:
+                st.write(f"• **인덱스 상태**: ❌ {str(e)[:50]}...")
+        
+        
+
 def render_chat_history():
     """채팅 기록 표시 (말풍선 스타일)"""
     
