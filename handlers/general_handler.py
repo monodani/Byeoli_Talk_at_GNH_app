@@ -18,7 +18,7 @@ from typing import List, Dict, Any, Tuple
 from utils.textifier import TextChunk
 
 # 프로젝트 모듈
-from handlers.base_handler import base_handler
+from handlers.base_handler import BaseHandler
 from utils.contracts import QueryRequest, HandlerResponse
 
 
@@ -26,7 +26,7 @@ from utils.contracts import QueryRequest, HandlerResponse
 logger = logging.getLogger(__name__)
 
 
-class general_handler(base_handler):
+class general_handler(BaseHandler):
     """
     일반 도메인 전용 핸들러
     
