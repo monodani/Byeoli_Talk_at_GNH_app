@@ -11,6 +11,8 @@
 - 표준 인터페이스 (QueryRequest → HandlerResponse)
 
 🚨 주요 수정사항:
+✅ 누락된 _get_vectorstore() 메서드 추가
+✅ API 키 접근 방식 수정 (config.get() 사용)
 ✅ OpenAIEmbeddings 초기화 방식 수정 (호환성 문제 해결)
 ✅ Graceful Degradation 강화
 ✅ 에러 처리 개선
@@ -40,7 +42,7 @@ from rank_bm25 import BM25Okapi
 logger = logging.getLogger(__name__)
 
 
-class base_handler(ABC):
+class BaseHandler(ABC):
     """
     모든 핸들러의 기반 클래스 (OpenAI 호환성 수정)
     
@@ -54,7 +56,7 @@ class base_handler(ABC):
     
     def __init__(self, domain: str, index_name: str, confidence_threshold: float):
         """
-        base_handler 초기화 (OpenAI 호환성 수정)
+        BaseHandler 초기화 (OpenAI 호환성 수정)
         
         Args:
             domain: 도메인 이름 (예: "satisfaction")
@@ -83,9 +85,8 @@ class base_handler(ABC):
         try:
             from langchain_openai import OpenAIEmbeddings
             
-            # ✅ 수정: get_openai_api_key() 함수 사용
-            from utils.config import get_openai_api_key
-            api_key = get_openai_api_key()
+            # 🚨 핵심 수정: config에서 직접 API 키 가져오기
+            api_key = config.get('OPENAI_API_KEY') or config.OPENAI_API_KEY
             
             if not api_key:
                 logger.warning(f"⚠️ {self.domain} 핸들러: OPENAI_API_KEY가 설정되지 않아 임베딩을 사용할 수 없습니다.")
@@ -112,9 +113,8 @@ class base_handler(ABC):
         ChatOpenAI LLM 안전한 초기화 (Streamlit Secrets 지원)
         """
         try:
-            # ✅ 수정: get_openai_api_key() 함수 사용
-            from utils.config import get_openai_api_key
-            api_key = get_openai_api_key()
+            # 🚨 핵심 수정: config에서 직접 API 키 가져오기
+            api_key = config.get('OPENAI_API_KEY') or config.OPENAI_API_KEY
             
             if not api_key:
                 logger.warning(f"⚠️ {self.domain} 핸들러: OPENAI_API_KEY가 설정되지 않아 LLM을 사용할 수 없습니다.")
@@ -134,6 +134,22 @@ class base_handler(ABC):
             logger.error(f"❌ {self.domain} 핸들러: ChatOpenAI 초기화 실패: {e}")
             return None
 
+    def _get_vectorstore(self) -> Optional[FAISS]:
+        """
+        🚨 핵심 추가: IndexManager를 통해 벡터스토어 획득 (중앙집중식)
+        
+        Returns:
+            Optional[FAISS]: 벡터스토어 인스턴스 또는 None
+        """
+        try:
+            vectorstore = self.index_manager.get_vectorstore(self.domain)
+            if vectorstore is None:
+                logger.warning(f"⚠️ {self.domain} 벡터스토어를 찾을 수 없습니다")
+                return None
+            return vectorstore
+        except Exception as e:
+            logger.error(f"❌ {self.domain} 벡터스토어 획득 실패: {e}")
+            return None
     
     def _get_bm25(self) -> Optional[BM25Okapi]:
         """
@@ -200,7 +216,7 @@ class base_handler(ABC):
                         text_chunk = TextChunk(
                             text=doc.page_content,
                             source_id=doc.metadata.get('source_id', 'unknown'),
-                            chunk_id=doc.metadata.get('chunk_id', 0),
+                            chunk_index=doc.metadata.get('chunk_index', 0),
                             metadata=doc.metadata
                         )
                         faiss_results.append((text_chunk, 1.0 - score))  # 거리를 유사도로 변환
@@ -253,8 +269,8 @@ class base_handler(ABC):
             
             # FAISS 결과 처리
             for rank, (doc, score) in enumerate(faiss_results, 1):
-                # ✅ getattr로 안전하게 chunk_id 접근
-                doc_id = f"{doc.source_id}_{getattr(doc, 'chunk_id', rank)}"
+                # ✅ getattr로 안전하게 chunk_index 접근
+                doc_id = f"{doc.source_id}_{getattr(doc, 'chunk_index', rank)}"
                 rrf_score = 1.0 / (k + rank)
                 
                 if doc_id not in doc_scores:
@@ -263,8 +279,8 @@ class base_handler(ABC):
             
             # BM25 결과 처리
             for rank, (doc, score) in enumerate(bm25_results, 1):
-                # ✅ getattr로 안전하게 chunk_id 접근
-                doc_id = f"{doc.source_id}_{getattr(doc, 'chunk_id', rank)}"
+                # ✅ getattr로 안전하게 chunk_index 접근
+                doc_id = f"{doc.source_id}_{getattr(doc, 'chunk_index', rank)}"
                 rrf_score = 1.0 / (k + rank)
                 
                 if doc_id not in doc_scores:
@@ -425,9 +441,6 @@ class base_handler(ABC):
         except Exception as e:
             logger.error(f"❌ {self.domain} 핸들러 처리 실패: {e}")
             return self._fallback_response(query, str(e))
-
-        if self._should_request_clarification(request.text, confidence, results):
-            return self._generate_clarification_response(request.text, request.context)
     
     def _fallback_response(self, query: str, error_msg: str = "") -> HandlerResponse:
         """
@@ -456,3 +469,7 @@ class base_handler(ABC):
                 "timestamp": datetime.now().isoformat()
             }
         )
+
+
+# 하위 호환성을 위한 별칭 (기존 코드가 소문자 클래스명을 사용하는 경우)
+base_handler = BaseHandler
