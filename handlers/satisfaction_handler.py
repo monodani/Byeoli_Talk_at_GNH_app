@@ -16,7 +16,7 @@ import logging
 from typing import List, Dict, Any, Tuple
 
 # 프로젝트 모듈
-from handlers.base_handler import base_handler
+from handlers.base_handler import BaseHandler
 from utils.contracts import QueryRequest, HandlerResponse
 from utils.textifier import TextChunk
 
@@ -24,7 +24,7 @@ from utils.textifier import TextChunk
 logger = logging.getLogger(__name__)
 
 
-class satisfaction_handler(base_handler):
+class satisfaction_handler(BaseHandler):
     """
     만족도 조사 데이터 전용 핸들러
     
