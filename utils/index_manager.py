@@ -93,12 +93,12 @@ class VectorStoreMetadata:
         try:
             from langchain_openai import OpenAIEmbeddings
             
-            # 🚨 핵심 수정: 동적으로 API 키 가져오기
+            # ✅ 수정: get_openai_api_key() 함수 사용
             from utils.config import get_openai_api_key
             api_key = get_openai_api_key()
             
             if not api_key:
-                logger.warning("⚠️ OPENAI_API_KEY가 설정되지 않아 임베딩을 사용할 수 없습니다.")
+                logger.warning(f"⚠️ {self.domain} 도메인: OPENAI_API_KEY가 설정되지 않아 임베딩을 사용할 수 없습니다.")
                 return None
             
             # 최소한의 매개변수로 안전한 초기화
@@ -116,6 +116,7 @@ class VectorStoreMetadata:
         except Exception as e:
             logger.error(f"❌ {self.domain} 도메인 OpenAIEmbeddings 초기화 실패: {e}")
             return None
+
     
     def _get_vectorstore_path(self) -> Path:
         """도메인별 벡터스토어 경로 매핑"""
@@ -210,7 +211,7 @@ class IndexManager:
         try:
             from langchain_openai import OpenAIEmbeddings
             
-            # 🚨 핵심 수정: 동적으로 API 키 가져오기
+            # ✅ 수정: get_openai_api_key() 함수 사용  
             from utils.config import get_openai_api_key
             api_key = get_openai_api_key()
             
@@ -234,6 +235,7 @@ class IndexManager:
             logger.error(f"❌ 글로벌 OpenAIEmbeddings 초기화 실패: {e}")
             logger.info("🔄 Graceful Degradation: 임베딩 없이 기본 기능으로 동작합니다.")
             return None
+
 
     def _load_domain(self, domain: str):
         """
