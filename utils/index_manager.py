@@ -93,9 +93,8 @@ class VectorStoreMetadata:
         try:
             from langchain_openai import OpenAIEmbeddings
             
-            # ✅ 수정: get_openai_api_key() 함수 사용
-            from utils.config import get_openai_api_key
-            api_key = get_openai_api_key()
+            # 🚨 핵심 수정: 동적으로 API 키 가져오기
+            api_key = config.get('OPENAI_API_KEY') or config.OPENAI_API_KEY
             
             if not api_key:
                 logger.warning(f"⚠️ {self.domain} 도메인: OPENAI_API_KEY가 설정되지 않아 임베딩을 사용할 수 없습니다.")
@@ -211,9 +210,8 @@ class IndexManager:
         try:
             from langchain_openai import OpenAIEmbeddings
             
-            # ✅ 수정: get_openai_api_key() 함수 사용  
-            from utils.config import get_openai_api_key
-            api_key = get_openai_api_key()
+            # 🚨 핵심 수정: 동적으로 API 키 가져오기  
+            api_key = config.get('OPENAI_API_KEY') or config.OPENAI_API_KEY
             
             if not api_key:
                 logger.warning("⚠️ OPENAI_API_KEY가 설정되지 않아 임베딩 기능이 제한됩니다.")
