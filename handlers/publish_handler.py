@@ -49,7 +49,7 @@ class publish_handler(BaseHandler):
     
     def __init__(self):
         super().__init__(
-            domain="unified_publish",
+            domain="publish",
             index_name="publish_index", 
             confidence_threshold=0.74
         )
