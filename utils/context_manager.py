@@ -433,27 +433,44 @@ class ContextManager:
             cls._instance = super().__new__(cls)
         return cls._instance
         def __init__(self):
-            if self._initialized:
-                return
-            
-        # 🚨 핵심 수정: Streamlit Secrets 우선순위로 API 키 가져오기
-        from utils.config import get_openai_api_key
-        api_key = get_openai_api_key()
-        
-        if not api_key:
-            raise ValueError(
-                "OPENAI_API_KEY not found!\n"
-                "Please set it in:\n"
-                "1. Streamlit Secrets (Recommended for production)\n"
-                "2. Environment variables\n"
-                "3. .env file"
-            )
-        
-        # OpenAI 클라이언트 초기화 (proxies 매개변수 제거)
-        import openai
-        self.openai_client = openai.OpenAI(api_key=api_key)
-        
-        # ... 나머지 초기화 코드는 동일
+                if self._initialized:
+                        return
+                        
+                # 🚨 핵심 수정: Streamlit Secrets 우선순위로 API 키 가져오기
+                from utils.config import get_openai_api_key
+                api_key = get_openai_api_key()
+                
+                if not api_key:
+                        raise ValueError(
+                                "OPENAI_API_KEY not found!\n"
+                                "Please set it in:\n"
+                                "1. Streamlit Secrets (Recommended for production)\n"
+                                "2. Environment variables\n"
+                                "3. .env file"
+                        )
+                
+                # OpenAI 클라이언트 초기화 (proxies 매개변수 제거)
+                import openai
+                self.openai_client = openai.OpenAI(api_key=api_key)
+                
+                # 🚨 핵심 수정: conversations 속성 초기화 추가
+                self.conversations: Dict[str, ConversationContext] = {}
+                
+                # 설정값
+                self.recent_messages_window = config.CONVERSATION_RECENT_MESSAGES_WINDOW  # 6턴
+                self.summary_update_interval = config.CONVERSATION_SUMMARY_UPDATE_INTERVAL  # 4턴
+                self.summary_token_threshold = config.CONVERSATION_SUMMARY_TOKEN_THRESHOLD  # 1000토큰
+                
+                # 컴포넌트 초기화
+                from utils.context_manager import EntityExtractor, ContextSummarizer, FollowUpDetector, QueryExpander
+                self.entity_extractor = EntityExtractor()
+                self.context_summarizer = ContextSummarizer(self.openai_client)
+                self.followup_detector = FollowUpDetector(self.openai_client)
+                self.query_expander = QueryExpander(self.openai_client)
+                
+                self._initialized = True
+                logger.info("🎯 ContextManager 초기화 완료")
+
 
         
         # 메모리 기반 세션 저장소 (st.session_state와 연동)
