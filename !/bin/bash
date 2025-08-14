@@ -1,0 +1,49 @@
+#!/bin/bash
+# check_files.sh - 벡터스토어 파일 확인 스크립트
+
+echo "🔍 벡터스토어 파일 존재 여부 확인"
+echo "================================"
+
+# 벡터스토어 디렉토리 확인
+if [ -d "vectorstores" ]; then
+    echo "✅ vectorstores 디렉토리 존재"
+    echo "📊 전체 크기: $(du -sh vectorstores | cut -f1)"
+    echo ""
+    
+    # 각 도메인별 확인
+    for domain in satisfaction general publish cyber menu notice; do
+        echo "🎯 $domain 도메인:"
+        
+        if [ "$domain" = "satisfaction" ]; then
+            dir_path="vectorstores/vectorstore_unified_satisfaction"
+        elif [ "$domain" = "publish" ]; then
+            dir_path="vectorstores/vectorstore_unified_publish"
+        else
+            dir_path="vectorstores/vectorstore_$domain"
+        fi
+        
+        if [ -d "$dir_path" ]; then
+            echo "  📂 디렉토리: ✅"
+            
+            faiss_file="$dir_path/${domain}_index.faiss"
+            pkl_file="$dir_path/${domain}_index.pkl"
+            bm25_file="$dir_path/${domain}_index.bm25"
+            
+            [ -f "$faiss_file" ] && echo "  📄 FAISS: ✅ ($(stat -f%z "$faiss_file" 2>/dev/null | numfmt --to=iec || stat -c%s "$faiss_file" | numfmt --to=iec))" || echo "  📄 FAISS: ❌"
+            [ -f "$pkl_file" ] && echo "  📄 PKL: ✅ ($(stat -f%z "$pkl_file" 2>/dev/null | numfmt --to=iec || stat -c%s "$pkl_file" | numfmt --to=iec))" || echo "  📄 PKL: ❌"
+            [ -f "$bm25_file" ] && echo "  📄 BM25: ✅ ($(stat -f%z "$bm25_file" 2>/dev/null | numfmt --to=iec || stat -c%s "$bm25_file" | numfmt --to=iec))" || echo "  📄 BM25: ❌"
+        else
+            echo "  📂 디렉토리: ❌"
+        fi
+        echo ""
+    done
+else
+    echo "❌ vectorstores 디렉토리 없음"
+    echo "💡 해결방법: make build-index-all 실행"
+fi
+
+echo "================================"
+echo "🔧 문제 해결 방법:"
+echo "1. 전체 인덱스 빌드: make build-index-all"
+echo "2. 데이터 확인: ls -la data/"
+echo "3. 권한 확인: ls -la vectorstores/"
