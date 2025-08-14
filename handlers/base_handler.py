@@ -435,6 +435,8 @@ class base_handler(ABC):
             logger.error(f"❌ {self.domain} 핸들러 처리 실패: {e}")
             return self._fallback_response(query, str(e))
 
+        if self._should_request_clarification(request.text, confidence, results):
+            return self._generate_clarification_response(request.text, request.context)
     
     def _fallback_response(self, query: str, error_msg: str = "") -> HandlerResponse:
         """
