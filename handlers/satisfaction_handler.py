@@ -37,7 +37,7 @@ class satisfaction_handler(base_handler):
     
     def __init__(self):
         super().__init__(
-            domain="unified_satisfaction",
+            domain="satisfaction",
             index_name="satisfaction_index", 
             confidence_threshold=0.68
         )
