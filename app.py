@@ -568,17 +568,38 @@ def render_header():
 def render_sidebar():
     """사이드바 렌더링 (도움말 + 상태 정보)"""
 
-    # --- 시스템 상태 확인 (클로드 제안 통합) ---
+    # --- 🚨 수정된 부분: 시스템 상태 확인 ---
     st.sidebar.markdown("### ⚙️ 시스템 상태")
-    if "OPENAI_API_KEY" in st.secrets:
-        st.sidebar.success("✅ Streamlit Secrets에서 API 키 로드됨")
-        # 보안을 위해 API 키 일부만 표시
-        api_key_part = st.secrets.get("OPENAI_API_KEY", "")[:10]
-        st.sidebar.info(f"🔑 API Key: `{api_key_part}...`")
+    
+    # API 키 상태 확인 및 표시 (수정된 로직)
+    from utils.config import get_openai_api_key
+    api_key = get_openai_api_key()
+    
+    if api_key:
+        # API 키 소스 확인
+        if "OPENAI_API_KEY" in st.secrets:
+            st.sidebar.success("✅ Streamlit Secrets에서 API 키 로드됨")
+            st.sidebar.info(f"🔑 API Key: `{api_key[:10]}...`")
+        elif os.getenv("OPENAI_API_KEY"):
+            st.sidebar.success("✅ 환경변수에서 API 키 로드됨")
+            st.sidebar.info(f"🔑 API Key: `{api_key[:10]}...`")
+        else:
+            st.sidebar.warning("⚠️ .env 파일에서 API 키 로드됨 (개발용)")
+            st.sidebar.info(f"🔑 API Key: `{api_key[:10]}...`")
     else:
-        st.sidebar.warning("⚠️ Streamlit Secrets 없음 (로컬 환경)")
+        st.sidebar.error("❌ OPENAI_API_KEY 없음")
+        st.sidebar.warning("Streamlit Cloud의 Settings → Secrets에서 설정하세요.")
+    
+    # 앱 모드 표시 (추가)
+    app_mode = config.APP_MODE
+    if app_mode == "production":
+        st.sidebar.success(f"🚀 운영 모드: {app_mode}")
+    else:
+        st.sidebar.info(f"🔧 개발 모드: {app_mode}")
+    
     st.sidebar.markdown("---")
     
+    # --- 기존 코드 그대로 유지 ---
     st.image(str(config.ROOT_DIR / 'assets/Byeoli/hardworking_Byeoli.png'))
     st.markdown("### 벼리톡 상태")
     
@@ -679,6 +700,27 @@ def render_sidebar():
                 perf = status["performance"]
                 st.write(f"**초기화 시간**: {perf.get('total_time', 0):.2f}초")
                 st.write(f"**메모리 사용량**: {perf.get('memory_usage', 'N/A')}")
+        
+        # 🚨 추가: 문제해결 가이드
+        with st.expander("🔧 문제해결 가이드"):
+            st.markdown("""
+            **API 키 오류 시:**
+            1. Streamlit Cloud: Settings → Secrets
+            2. OPENAI_API_KEY 추가
+            3. 앱 재시작
+            
+            **검색 실패 시:**
+            - 인덱스 파일 확인 필요
+            - 관리자에게 문의
+            """)
+        
+        # 개발 모드에서만 추가 성능 정보 표시
+        if config.APP_MODE != "production" and status.get("performance"):
+            perf = status["performance"]
+            st.markdown("---")
+            st.markdown("### 🛠️ 개발자 정보")
+            st.metric("로드 시간", f"{perf.get('load_time', 0):.2f}초")
+            st.metric("로드된 도메인", f"{perf.get('loaded_domains', 0)}개")
 
 def render_chat_history():
     """채팅 기록 표시 (말풍선 스타일)"""
