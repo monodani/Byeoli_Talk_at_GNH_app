@@ -42,7 +42,7 @@ from rank_bm25 import BM25Okapi
 logger = logging.getLogger(__name__)
 
 
-class base_handler(ABC):
+class BaseHandler(ABC):
     """
     모든 핸들러의 기반 클래스 (OpenAI 호환성 수정)
     
