@@ -18,7 +18,7 @@ import re
 from typing import List, Dict, Any, Tuple, Optional
 
 # 프로젝트 모듈
-from handlers.base_handler import base_handler
+from handlers.base_handler import BaseHandler
 from utils.contracts import QueryRequest, HandlerResponse
 from utils.textifier import TextChunk
 
@@ -26,7 +26,7 @@ from utils.textifier import TextChunk
 logger = logging.getLogger(__name__)
 
 
-class cyber_handler(base_handler):
+class cyber_handler(BaseHandler):
     """
     사이버교육 일정 전용 핸들러
     
