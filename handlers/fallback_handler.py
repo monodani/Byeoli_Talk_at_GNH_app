@@ -30,7 +30,7 @@ from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime
 
 # 프로젝트 모듈
-from handlers.base_handler import base_handler
+from handlers.base_handler import BaseHandler
 from utils.contracts import QueryRequest, HandlerCandidate, HandlerResponse, Citation, ConversationContext
 from utils.textifier import TextChunk
 
@@ -40,7 +40,7 @@ from utils.textifier import TextChunk
 logger = logging.getLogger(__name__)
 
 
-class fallback_handler(base_handler):
+class fallback_handler(BaseHandler):
     """
     최종 백업 핸들러 (담당부서 정보 통합)
 
