@@ -236,6 +236,17 @@ class IndexManager:
 
 
     def _load_domain(self, domain: str):
+        
+        """
+        여기서 fail이면 vectorstore에 박힌 embed_fn이 키/모델 불량 확정
+        """
+        logger.info(f"[{domain}] embed_fn type: {type(meta.vectorstore.embedding_function).__name__}")
+        try:
+            v = meta.vectorstore.embedding_function.embed_query("ping")
+            logger.info(f"[{domain}] embed_fn ping OK, dim={len(v)} vs index.d={meta.vectorstore.index.d}")
+        except Exception as e:
+            logger.exception(f"[{domain}] embed_fn ping FAIL → 이 embed_fn로는 쿼리 불가")
+    
         """
         단일 도메인의 벡터스토어를 로드 (경로 문제 수정)
         """
