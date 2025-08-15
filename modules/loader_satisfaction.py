@@ -142,6 +142,7 @@ class SatisfactionLoader(BaseLoader):
                     
                     chunk = TextChunk(
                         text=formatted_content,
+                        source_id=metadata['source_id'],
                         metadata=metadata
                     )
                     
@@ -213,6 +214,7 @@ class SatisfactionLoader(BaseLoader):
                     
                     chunk = TextChunk(
                         text=formatted_content,
+                        source_id=metadata['source_id'],
                         metadata=metadata
                     )
                     
