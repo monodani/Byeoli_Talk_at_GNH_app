@@ -236,36 +236,21 @@ class IndexManager:
 
 
     def _load_domain(self, domain: str):
-        
-        """
-        여기서 fail이면 vectorstore에 박힌 embed_fn이 키/모델 불량 확정
-        """
-        # logger.info(f"[{domain}] embed_fn type: {type(meta.vectorstore.embedding_function).__name__}")
-        # try:
-        #     v = meta.vectorstore.embedding_function.embed_query("ping")
-        #     logger.info(f"[{domain}] embed_fn ping OK, dim={len(v)} vs index.d={meta.vectorstore.index.d}")
-        # except Exception as e:
-        #     logger.exception(f"[{domain}] embed_fn ping FAIL → 이 embed_fn로는 쿼리 불가")
-    
         """
         단일 도메인의 벡터스토어를 로드 (경로 문제 수정)
         """
         meta = self.metadata[domain]
-        
         logger.info(f"🔄 도메인 {domain} 로드 시작...")
-        logger.debug(f"  - FAISS 경로: {meta.faiss_path}")
-        logger.debug(f"  - PKL 경로: {meta.pkl_path}")
-        logger.debug(f"  - BM25 경로: {meta.bm25_path}")
-        
+        logger.debug(f" - FAISS 경로: {meta.faiss_path}")
+        logger.debug(f" - PKL 경로: {meta.pkl_path}")
+        logger.debug(f" - BM25 경로: {meta.bm25_path}")
         try:
             if not meta.exists():
                 logger.warning(f"⚠️ 도메인 {domain}에 필요한 인덱스 파일이 없습니다.")
                 meta.vectorstore = None
                 meta.bm25 = None
                 return
-            
             start_time = time.time()
-            
             # 임베딩 모델 사용
             embeddings_to_use = meta.embeddings or self.embeddings
             if not embeddings_to_use:
@@ -273,28 +258,27 @@ class IndexManager:
                 meta.vectorstore = None
             else:
                 try:
-                    # 🔧 핵심 수정: 절대 경로 사용 및 allow_dangerous_deserialization 추가
                     vectorstore_path = meta.vectorstore_path.absolute()
-                    
                     logger.info(f"📍 FAISS 로드 시도:")
-                    logger.info(f"   경로: {vectorstore_path}")
-                    logger.info(f"   인덱스명: {domain}_index")
-                    
-                    # FAISS 인덱스 로드
+                    logger.info(f" 경로: {vectorstore_path}")
+                    logger.info(f" 인덱스명: {domain}_index")
                     meta.vectorstore = FAISS.load_local(
-                        str(vectorstore_path),  # 절대 경로 사용
+                        str(vectorstore_path),
                         embeddings_to_use,
                         index_name=f"{domain}_index",
-                        allow_dangerous_deserialization=True  # 🔧 중요!
+                        allow_dangerous_deserialization=True
                     )
-                    
-                    # 로드 성공 확인
+                    # --- [수정] FAISS 로드 후 인덱스 유효성 검증 로직 추가 ---
                     if hasattr(meta.vectorstore, 'index') and hasattr(meta.vectorstore.index, 'ntotal'):
                         doc_count = meta.vectorstore.index.ntotal
-                        logger.info(f"✅ {domain} FAISS 로드 성공: {doc_count}개 벡터")
+                        # 인덱스에 문서가 없으면 유효하지 않은 것으로 간주
+                        if doc_count == 0:
+                            logger.warning(f"⚠️ {domain} FAISS 인덱스에 문서가 없습니다 (ntotal=0). FAISS를 비활성화합니다.")
+                            meta.vectorstore = None
+                        else:
+                            logger.info(f"✅ {domain} FAISS 로드 성공: {doc_count}개 벡터")
                     else:
-                        logger.info(f"✅ {domain} FAISS 로드 완료")
-                        
+                        logger.info(f"✅ {domain} FAISS 로드 완료 (ntotal 확인 불가)")
                 except Exception as faiss_error:
                     logger.error(f"❌ {domain} FAISS 로드 실패: {faiss_error}")
                     logger.debug(f"상세 오류:\n{traceback.format_exc()}")
@@ -304,32 +288,30 @@ class IndexManager:
             meta.documents = []
             if meta.vectorstore:
                 try:
-                    # docstore._dict 대신 직접 검색으로 문서 확인
                     test_results = meta.vectorstore.similarity_search("test", k=1)
                     logger.info(f"📄 {domain} FAISS 검색 테스트: {len(test_results)}개 결과")
                     
-                    # docstore에서 문서 추출
                     if hasattr(meta.vectorstore, 'docstore') and hasattr(meta.vectorstore.docstore, '_dict'):
                         raw_documents = list(meta.vectorstore.docstore._dict.values())
                         logger.info(f"📄 {domain} docstore에서 {len(raw_documents)}개 문서 발견")
                         
-                        for i, doc in enumerate(raw_documents[:100]):  # 최대 100개만 처리 (성능)
+                        for i, doc in enumerate(raw_documents):
                             try:
-                                chunk = TextChunk(
+                                # docs 배열을 재구성합니다.
+                                meta.documents.append(TextChunk(
                                     text=doc.page_content,
                                     metadata=doc.metadata if hasattr(doc, 'metadata') else {},
                                     source_id=doc.metadata.get('source_id', f'{domain}_{i}') if hasattr(doc, 'metadata') else f'{domain}_{i}',
                                     chunk_index=i
-                                )
-                                meta.documents.append(chunk)
+                                ))
                             except Exception as e:
-                                if i < 5:  # 처음 5개만 에러 로깅
-                                    logger.debug(f"청크 {i} 변환 실패: {e}")
+                                logger.debug(f"청크 {i} 변환 실패: {e}")
                         
                         logger.info(f"✅ {domain} 문서 로드: {len(meta.documents)}개")
-                        
                 except Exception as doc_error:
                     logger.warning(f"⚠️ {domain} 문서 추출 실패: {doc_error}")
+                    # --- [수정] 문서 추출 실패 시 FAISS 비활성화 ---
+                    meta.vectorstore = None
                     # 폴백: 더미 문서 생성
                     meta.documents = [TextChunk(
                         text=f"{domain} 도메인 정보",
@@ -337,7 +319,6 @@ class IndexManager:
                         source_id=f'{domain}_dummy',
                         chunk_index=0
                     )]
-            
             # BM25 로드 (선택적)
             if meta.bm25_path.exists():
                 try:
@@ -351,20 +332,16 @@ class IndexManager:
                 except Exception as e:
                     logger.warning(f"⚠️ {domain} BM25 로드 실패: {e}")
                     meta.bm25 = None
-            
             # 상태 업데이트
             meta.last_loaded = datetime.now()
             meta.load_count += 1
             meta.last_hash = meta.get_file_hash()
-            
             elapsed = time.time() - start_time
             logger.info(f"✅ {domain} 전체 로드 완료 ({elapsed:.2f}초)")
-            
         except Exception as e:
             meta.error_count += 1
             logger.error(f"❌ {domain} 로드 치명적 오류: {e}")
             logger.debug(traceback.format_exc())
-            
             # 폴백 설정
             meta.vectorstore = None
             meta.bm25 = None
@@ -374,6 +351,7 @@ class IndexManager:
                 source_id=f'{domain}_error',
                 chunk_index=0
             )]
+
 
 
 
