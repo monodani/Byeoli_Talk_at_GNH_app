@@ -217,6 +217,7 @@ class EnrollmentNoticeParser(NoticeParser):
         summary = f"[{title}] 입교 준비사항에 대한 안내입니다. 체크리스트를 확인해주세요."
         main_chunk = TextChunk(
             text=summary,
+            source_id=base_metadata['source_id'],
             metadata={**base_metadata, 'chunk_type': 'summary', 'priority': 'high'}
         )
         chunks.append(main_chunk)
@@ -226,6 +227,7 @@ class EnrollmentNoticeParser(NoticeParser):
             checklist_text = "\n".join(f"• {item}" for item in parsed_notice.get('checklist', []))
             checklist_chunk = TextChunk(
                 text=f"[{title} - 준비사항 체크리스트]\n\n{checklist_text}",
+                source_id=base_metadata['source_id'],
                 metadata={**base_metadata, 'chunk_type': 'checklist'}
             )
             chunks.append(checklist_chunk)
@@ -234,6 +236,7 @@ class EnrollmentNoticeParser(NoticeParser):
         if parsed_notice.get('contact'):
             contact_chunk = TextChunk(
                 text=f"[{title} - 문의처]\n\n{parsed_notice.get('contact')}",
+                source_id=base_metadata['source_id'],
                 metadata={**base_metadata, 'chunk_type': 'contact'}
             )
             chunks.append(contact_chunk)
@@ -297,6 +300,7 @@ class RecruitmentNoticeParser(NoticeParser):
         
         return [TextChunk(
             text=summary,
+            source_id=base_metadata['source_id'],
             metadata={**base_metadata, 'chunk_type': 'summary', 'priority': 'high'}
         )]
 
@@ -334,7 +338,11 @@ class FallbackNoticeParser(NoticeParser):
             'content': truncated_content
         }
         
-        return [TextChunk(text=f"[{title}]\n\n{full_text}", metadata=metadata)]
+        return [TextChunk(
+            text=f"[{title}]\n\n{full_text}",
+            source_id=metadata['source_id'],
+            metadata=metadata
+        )]
 
 # ================================================================
 # 3. BaseLoader 패턴을 준수하는 메인 로더
@@ -513,6 +521,7 @@ class NoticeLoader(BaseLoader):
             
             return TextChunk(
                 text=fallback_text,
+                source_id=f'notice/notice.txt#section_{notice_number}',
                 metadata={
                     'source_file': 'notice.txt',
                     'notice_number': notice_number,
