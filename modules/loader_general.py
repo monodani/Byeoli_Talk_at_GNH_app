@@ -125,7 +125,6 @@ class GeneralLoader(BaseLoader):
                             # 메타데이터 생성
                             metadata = {
                                 'source_file': pdf_file.name,
-                                'source_id': f'general/{pdf_file.name}#page_{page_num}',
                                 'file_type': 'pdf',
                                 'category': category,
                                 'doc_type': doc_type,
@@ -140,6 +139,7 @@ class GeneralLoader(BaseLoader):
                             
                             chunk = TextChunk(
                                 text=chunk_text,
+                                source_id=f'general/{pdf_file.name}#page_{page_num}',
                                 metadata=metadata
                             )
                             
@@ -189,7 +189,6 @@ class GeneralLoader(BaseLoader):
                     # 메타데이터 생성
                     metadata = {
                         'source_file': 'task_telephone.csv',
-                        'source_id': f'general/task_telephone.csv#row_{idx}',
                         'file_type': 'csv',
                         'category': 'contact',
                         'doc_type': '업무담당자연락처',
@@ -206,6 +205,7 @@ class GeneralLoader(BaseLoader):
                     
                     chunk = TextChunk(
                         text=chunk_text,
+                        source_id=f'general/task_telephone.csv#row_{idx}',
                         metadata=metadata
                     )
                     
