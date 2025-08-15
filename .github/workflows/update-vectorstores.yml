@@ -1,0 +1,49 @@
+name: 🔄 벡터스토어 자동 업데이트
+
+# 트리거 조건
+on:
+  # data 폴더의 모든 파일 변경 시 자동 실행
+  push:
+    branches: [ operation ]
+    paths:
+      - 'data/**/*'
+  
+  # 수동 실행 가능
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: '강제 재빌드 여부'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+# 환경 변수
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  update-vectorstores:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30  # 30분 타임아웃
+    
+    permissions:
+      contents: write  # 벡터스토어 파일 커밋을 위해 필요
+      
+    steps:
+      # 1. 저장소 체크아웃
+      - name: 📥 체크아웃
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 전체 히스토리 (해시 계산용)
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      # 2. Python 환경 설정
+      - name: 🐍 Python 환경 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
