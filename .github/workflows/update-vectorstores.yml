@@ -77,7 +77,7 @@ jobs:
       # 6. 벡터스토어 빌드 실행
       - name: 🔨 벡터스토어 빌드 실행
         env:
-          OPENAI_API_KEY: ${{ secrets.OPEN_API_KEY_Dev }}
+          OPENAI_API_KEY: ${{ secrets.OPEN_API_KEY_DEV }}
         run: |
           echo "::group::벡터스토어 빌드 시작"
           echo "API 키 확인: ${OPENAI_API_KEY:0:10}..." # 보안상 일부만 출력
