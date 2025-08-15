@@ -472,4 +472,4 @@ class BaseHandler(ABC):
 
 
 # 하위 호환성을 위한 별칭 (기존 코드가 소문자 클래스명을 사용하는 경우)
-base_handler = BaseHandler
+BaseHandler = BaseHandler
