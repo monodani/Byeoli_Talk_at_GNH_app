@@ -20,7 +20,7 @@ from typing import List, Dict, Any, Tuple, Optional
 
 
 # 프로젝트 모듈
-from handlers.base_handler import BaseHandler
+from handlers.base_handler import base_handler
 from utils.contracts import QueryRequest, HandlerResponse
 from utils.textifier import TextChunk
 
@@ -28,7 +28,7 @@ from utils.textifier import TextChunk
 logger = logging.getLogger(__name__)
 
 
-class menu_handler(BaseHandler):
+class menu_handler(base_handler):
     """
     구내식당 식단표 전용 핸들러
     
