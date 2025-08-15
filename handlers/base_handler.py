@@ -158,6 +158,13 @@ class base_handler(ABC):
     
     def _hybrid_search(self, query: str, k: int = 5) -> List[Tuple[TextChunk, float]]:
         """
+        FAISS 호출 직전 
+        """
+        logger.info(f"[{self.domain}] handler model={config.EMBEDDING_MODEL}, "
+                    f"vs store embed_fn={type(vectorstore.embedding_function).__name__}")
+
+        
+        """
         하이브리드 검색 (FAISS + BM25 + RRF)
         """
         try:
