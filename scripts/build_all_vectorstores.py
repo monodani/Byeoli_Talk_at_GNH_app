@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+# 도메인별 로더 매핑 (동적 구성)
+        self.loaders = {#!/usr/bin/env python3
 """
 경상남도인재개발원 RAG 챗봇 - 통합 벡터스토어 빌드 스크립트
 
@@ -25,11 +26,27 @@ sys.path.insert(0, str(project_root))
 # 개별 로더 모듈 임포트
 try:
     from modules.loader_cyber import CyberLoader
-    from modules.loader_general import GeneralLoader
     from modules.loader_menu import MenuLoader
     from modules.loader_notice import NoticeLoader
-    from modules.loader_publish import PublishLoader
     from modules.loader_satisfaction import SatisfactionLoader
+    
+    # PDFProcessor 의존성이 있는 로더들은 조건부 임포트
+    try:
+        from modules.loader_general import GeneralLoader
+        GENERAL_AVAILABLE = True
+    except ImportError as e:
+        print(f"⚠️ GeneralLoader 임포트 실패 (건너뜀): {e}")
+        GeneralLoader = None
+        GENERAL_AVAILABLE = False
+    
+    try:
+        from modules.loader_publish import PublishLoader
+        PUBLISH_AVAILABLE = True
+    except ImportError as e:
+        print(f"⚠️ PublishLoader 임포트 실패 (건너뜀): {e}")
+        PublishLoader = None
+        PUBLISH_AVAILABLE = False
+        
 except ImportError as e:
     print(f"❌ 로더 모듈 임포트 실패: {e}")
     sys.exit(1)
@@ -61,15 +78,26 @@ class VectorstoreBuildManager:
         self.build_results = {}
         self.start_time = datetime.now()
         
-        # 도메인별 로더 매핑
-        self.loaders = {
+        # 도메인별 로더 매핑 (문제 있는 로더 임시 제외)
+        base_loaders = {
             'cyber': CyberLoader,
-            'general': GeneralLoader, 
             'menu': MenuLoader,
             'notice': NoticeLoader,
-            'publish': PublishLoader,
             'satisfaction': SatisfactionLoader
         }
+        
+        # PDFProcessor 의존성이 있는 로더들은 조건부 추가
+        if GENERAL_AVAILABLE and GeneralLoader:
+            base_loaders['general'] = GeneralLoader
+        else:
+            self.logger.warning("⚠️ GeneralLoader를 사용할 수 없어 건너뜁니다")
+            
+        if PUBLISH_AVAILABLE and PublishLoader:
+            base_loaders['publish'] = PublishLoader
+        else:
+            self.logger.warning("⚠️ PublishLoader를 사용할 수 없어 건너뜁니다")
+        
+        self.loaders = base_loaders
         
         self.logger.info("🚀 벡터스토어 통합 빌드 시작")
         self.logger.info(f"📅 시작 시간: {self.start_time.isoformat()}")
@@ -211,9 +239,18 @@ def check_environment():
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key:
         logger.error("❌ OPENAI_API_KEY 환경변수가 설정되지 않았습니다")
+        logger.info("🔍 환경변수 디버깅:")
+        logger.info(f"   - OPENAI_API_KEY: {'설정됨' if api_key else '없음'}")
+        logger.info(f"   - 전체 환경변수 개수: {len(os.environ)}")
+        
+        # GitHub Actions에서 사용 가능한 모든 환경변수 중 API 키 관련 찾기
+        api_related = [k for k in os.environ.keys() if 'API' in k.upper() or 'OPENAI' in k.upper()]
+        logger.info(f"   - API 관련 환경변수: {api_related}")
+        
         return False
     
     logger.info("✅ 환경변수 확인 완료")
+    logger.info(f"🔑 API 키 확인: {api_key[:10]}..." if len(api_key) >= 10 else "🔑 API 키가 너무 짧음")
     
     # 필수 디렉터리 확인
     required_dirs = ['data', 'vectorstores', 'modules']
