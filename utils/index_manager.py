@@ -283,7 +283,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ 테스트 실패: {e}")
         traceback.print_exc()
-        print(f"🚀 IndexManager 싱글톤 초기화 완료: {len(self.metadata)}개 도메인")
         self.load_all_domains()
         self._initialized = True
 
