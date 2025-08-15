@@ -31,14 +31,12 @@ colorama==0.4.6
 tenacity==9.0.0
 tqdm==4.67.0
 requests>=2.31.0
-json
-logging
-traceback
 
 # Type hints
 typing-extensions==4.12.2
 
 # For schema validation
 jsonschema==4.23.0
+
 
 
