@@ -364,7 +364,7 @@ class MenuLoader(BaseLoader):
             
             return TextChunk(
                 text=summary_text,
-                source_id=metadata['source_id'],
+                source_id=f'menu/menu.png#{week}_summary',
                 metadata={
                     'source_file': 'menu.png',
                     'week': week,
@@ -394,7 +394,7 @@ class MenuLoader(BaseLoader):
             
             return TextChunk(
                 text=chunk_text,
-                source_id=metadata['source_id'],
+                source_id=f'menu/menu.png#{week}_{day}_{meal_type}',
                 metadata={
                     'source_file': 'menu.png',
                     'day': day,
@@ -431,7 +431,7 @@ class MenuLoader(BaseLoader):
             
             return TextChunk(
                 text=fallback_text,
-                source_id=metadata['source_id'],
+                source_id=f'menu/menu.png#{week}_{day}_{meal_type}',
                 metadata={
                     'source_file': 'menu.png',
                     'week': current_week,
