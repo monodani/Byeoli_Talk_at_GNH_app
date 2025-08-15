@@ -158,13 +158,6 @@ class base_handler(ABC):
     
     def _hybrid_search(self, query: str, k: int = 5) -> List[Tuple[TextChunk, float]]:
         """
-        FAISS 호출 직전 
-        """
-        # logger.info(f"[{self.domain}] handler model={config.EMBEDDING_MODEL}, "
-        #             f"vs store embed_fn={type(vectorstore.embedding_function).__name__}")
-
-        
-        """
         하이브리드 검색 (FAISS + BM25 + RRF)
         """
         try:
@@ -173,7 +166,7 @@ class base_handler(ABC):
             documents = self._get_documents()
             
             # 사용 가능한 검색 방법 확인
-            faiss_available = vectorstore is not None and self.embeddings is not None
+            faiss_available = vectorstore is not None and getattr(vectorstore, "embedding_function", None) is not none)
             bm25_available = bm25 is not None and len(documents) > 0
             
             if not faiss_available and not bm25_available:
