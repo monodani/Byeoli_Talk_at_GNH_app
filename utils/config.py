@@ -13,6 +13,7 @@ Configuration Module: 환경변수 로드/검증 및 전역 설정
 - 환경변수 로드 로직 개선
 ✅ HANDLERS 필드 추가 (index_manager.py 호환성)
 🚨 수정: Streamlit Secrets 안전한 로드 + APP_MODE 기본값 변경
+🔧 추가: 임베딩 모델-차원 일치성 검증 및 자동 매핑
 """
 
 import os
@@ -41,6 +42,24 @@ else:
         print(f"🔧 개발용으로 .env.example 임시 로드")
     else:
         print("❌ .env 및 .env.example 파일을 찾을 수 없습니다.")
+
+# ================================================================
+# 🔧 추가: 임베딩 모델-차원 매핑 함수
+# ================================================================
+
+def _get_embedding_dimension(model: str) -> int:
+    """임베딩 모델에 따른 차원 자동 매핑"""
+    model_dimensions = {
+        "text-embedding-3-large": 3072,
+        "text-embedding-3-small": 1536,
+        "text-embedding-ada-002": 1536
+    }
+    dimension = model_dimensions.get(model, 3072)  # 기본값: 3072 (large)
+    
+    if model not in model_dimensions:
+        print(f"⚠️ 알 수 없는 임베딩 모델: {model}, 기본 차원(3072) 사용")
+    
+    return dimension
 
 # ================================================================
 # 🚨 추가: Streamlit Secrets 안전한 로드 함수
@@ -92,9 +111,9 @@ class AppConfig:
     OPENAI_MODEL_MAIN: str = field(default_factory=lambda: os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL_MAIN", "gpt-4o-mini")))
     OPENAI_MODEL_ROUTER: str = field(default_factory=lambda: os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL_ROUTER", "gpt-4o-mini")))
     
-    # 임베딩 설정
-    EMBEDDING_MODEL: str = field(default_factory=lambda: os.getenv("OPENAI_EMBEDDING_MODEL", os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")))
-    EMBEDDING_DIMENSION: int = field(default_factory=lambda: int(os.getenv("EMBEDDING_DIMENSION", "3072")))
+    # 🔧 수정: 임베딩 설정 통일 및 자동 차원 매핑
+    EMBEDDING_MODEL: str = field(default_factory=lambda: os.getenv("EMBEDDING_MODEL") or os.getenv("OPENAI_EMBEDDING_MODEL") or "text-embedding-3-large")
+    EMBEDDING_DIMENSION: int = field(default_factory=lambda: _get_embedding_dimension(os.getenv("EMBEDDING_MODEL") or os.getenv("OPENAI_EMBEDDING_MODEL") or "text-embedding-3-large"))
     
     # 검색 설정
     FAISS_K_DEFAULT: int = field(default_factory=lambda: int(os.getenv("RETRIEVAL_K", os.getenv("FAISS_K_DEFAULT", "5"))))
@@ -221,7 +240,7 @@ class AppConfig:
             print(f"⚠️ 로깅 설정 실패: {e}")
     
     def _validate_settings(self):
-        """설정값 검증 (추가)"""
+        """🔧 수정: 설정값 검증 (임베딩 모델-차원 일치성 추가)"""
         # 컨피던스 임계값 검증
         thresholds = self.confidence_thresholds
         for handler, threshold in thresholds.items():
@@ -237,6 +256,15 @@ class AppConfig:
             print("⚠️ HANDLERS 리스트가 비어있습니다.")
         else:
             print(f"✅ HANDLERS 검증 완료: {len(self.HANDLERS)}개 도메인 ({', '.join(self.HANDLERS)})")
+        
+        # 🔧 추가: 임베딩 모델-차원 일치성 검증
+        expected_dimension = _get_embedding_dimension(self.EMBEDDING_MODEL)
+        if self.EMBEDDING_DIMENSION != expected_dimension:
+            print(f"⚠️ 임베딩 차원 불일치: 모델({self.EMBEDDING_MODEL})의 예상 차원({expected_dimension}) != 설정 차원({self.EMBEDDING_DIMENSION})")
+            print(f"🔧 자동 수정: 차원을 {expected_dimension}으로 변경합니다.")
+            self.EMBEDDING_DIMENSION = expected_dimension
+        else:
+            print(f"✅ 임베딩 설정 검증 완료: {self.EMBEDDING_MODEL} ({self.EMBEDDING_DIMENSION}차원)")
     
     def get(self, key: str, default: Any = None) -> Any:
         """
@@ -269,6 +297,15 @@ class AppConfig:
             'satisfaction': self.CACHE_TTL_DEFAULT,
             'cyber': self.CACHE_TTL_DEFAULT,
             'fallback': self.CACHE_TTL_DEFAULT
+        }
+
+    # 🔧 추가: 임베딩 설정 반환 메서드 (BaseLoader 호환성)
+    def get_embedding_config(self) -> Dict[str, Any]:
+        """임베딩 설정 반환 (BaseLoader 호환)"""
+        return {
+            "model": self.EMBEDDING_MODEL,
+            "dimensions": self.EMBEDDING_DIMENSION,
+            "api_key": self.OPENAI_API_KEY
         }
 
 
@@ -547,115 +584,3 @@ def validate_keyword_rules():
     
     for domain, keywords in KEYWORD_MATCHING_RULES.items():
         for keyword, score in keywords.items():
-            if not (0.0 <= score <= 1.0):
-                issues.append(f"{domain}.{keyword}: score {score} out of range [0.0, 1.0]")
-            
-            if keyword in KEYWORD_STOP_WORDS:
-                issues.append(f"{domain}.{keyword}: keyword is in stop words")
-    
-    if issues:
-        print("❌ 키워드 규칙 검증 실패:")
-        for issue in issues:
-            print(f"  - {issue}")
-    else:
-        print("✅ 키워드 규칙 검증 통과")
-    
-    return len(issues) == 0
-
-
-def print_config_summary():
-    """설정 요약 출력"""
-    config = get_config()
-    
-    print("\n🔧 Byeoli Talk at GNHRD 설정 요약")
-    print("=" * 50)
-    print(f"📁 프로젝트 루트: {config.ROOT_DIR}")
-    print(f"🔧 앱 모드: {config.APP_MODE}")
-    print(f"📝 로그 레벨: {config.LOG_LEVEL}")
-    print(f"🤖 메인 모델: {config.OPENAI_MODEL_MAIN}")
-    print(f"🔄 라우터 모델: {config.OPENAI_MODEL_ROUTER}")
-    print(f"⏱️ 총 타임박스: {config.ROUTER_TOTAL_TIMEOUT}초")
-    print(f"🎯 처리 도메인: {', '.join(config.HANDLERS)}")
-    
-    print(f"\n📊 컨피던스 임계값:")
-    for handler, threshold in config.confidence_thresholds.items():
-        print(f"  {handler}: {threshold}")
-    
-    print(f"\n🗂️ 캐시 TTL 설정:")
-    for handler, ttl in config.cache_ttl_config.items():
-        hours = ttl // 3600
-        print(f"  {handler}: {hours}시간" if hours < 24 else f"  {handler}: {ttl//86400}일")
-    
-    print(f"\n🎯 키워드 규칙 통계:")
-    for domain, keywords in KEYWORD_MATCHING_RULES.items():
-        print(f"  {domain}: {len(keywords)}개 키워드")
-
-
-# ================================================================
-# 테스트 및 검증
-# ================================================================
-
-def test_config():
-    """설정 모듈 테스트"""
-    print("🧪 Config 모듈 테스트 시작")
-    
-    try:
-        # 설정 로드 테스트
-        config = get_config()
-        print("✅ 설정 로드 성공")
-        
-        # ✅ HANDLERS 필드 검증 추가
-        assert hasattr(config, 'HANDLERS'), "HANDLERS 필드가 없습니다"
-        assert isinstance(config.HANDLERS, list), "HANDLERS가 리스트가 아닙니다"
-        assert len(config.HANDLERS) == 6, f"HANDLERS 개수 불일치: {len(config.HANDLERS)}"
-        expected_handlers = ["satisfaction", "general", "publish", "cyber", "menu", "notice"]
-        for handler in expected_handlers:
-            assert handler in config.HANDLERS, f"필수 핸들러 누락: {handler}"
-        print("✅ HANDLERS 필드 검증 통과")
-        
-        # 주요 설정값 검증
-        assert config.OPENAI_MODEL_ROUTER == "gpt-4o-mini", f"라우터 모델 불일치: {config.OPENAI_MODEL_ROUTER}"
-        assert config.CONFIDENCE_THRESHOLD_GENERAL == 0.70, f"일반 핸들러 임계값 불일치: {config.CONFIDENCE_THRESHOLD_GENERAL}"
-        assert config.CONVERSATION_RECENT_MESSAGES_WINDOW == 6, f"대화 윈도우 크기 불일치: {config.CONVERSATION_RECENT_MESSAGES_WINDOW}"
-        print("✅ 주요 설정값 검증 통과")
-        
-        # 키워드 규칙 검증
-        assert validate_keyword_rules(), "키워드 규칙 검증 실패"
-        print("✅ 키워드 규칙 검증 통과")
-        
-        # 디렉터리 생성 확인
-        essential_dirs = [config.CACHE_DIR, config.LOGS_DIR, config.VECTORSTORE_DIR]
-        for dir_path in essential_dirs:
-            assert Path(dir_path).exists(), f"필수 디렉터리 없음: {dir_path}"
-        print("✅ 필수 디렉터리 확인 완료")
-        
-        # get() 메서드 테스트
-        api_key = config.get('OPENAI_API_KEY')
-        assert api_key == os.getenv('OPENAI_API_KEY', ''), "get() 메서드 테스트 실패"
-        
-        default_value = config.get('NON_EXISTENT_KEY', 'default')
-        assert default_value == 'default', "get() 메서드 기본값 테스트 실패"
-        print("✅ get() 메서드 테스트 통과")
-        
-        print("\n🎉 모든 테스트 통과!")
-        return True
-        
-    except Exception as e:
-        print(f"\n❌ 테스트 실패: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
-# ================================================================
-# 전역 설정 인스턴스 (핵심!)
-# ================================================================
-
-config = get_config()
-
-if __name__ == "__main__":
-    # 설정 테스트 및 요약 출력
-    if test_config():
-        print_config_summary()
-    else:
-        print("💥 설정 테스트 실패 - 문제를 해결한 후 다시 시도하세요.")
