@@ -216,14 +216,14 @@ class IndexManager:
             "error": None if status["loaded_domains"] > 0 else "No domains loaded"
         }
         
-        except Exception as e:
-            logger.error(f"❌ 인덱스 사전 로드 실패: {e}")
-            return {
-                "success": False,
-                "loaded_indexes": [],
-                "performance": {},
-                "error": str(e)
-            }
+    except Exception as e:
+        logger.error(f"❌ 인덱스 사전 로드 실패: {e}")
+        return {
+            "success": False,
+            "loaded_indexes": [],
+            "performance": {},
+            "error": str(e)
+        }
 
 def index_health_check() -> Dict[str, Any]:
     """
@@ -283,8 +283,7 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"❌ 테스트 실패: {e}")
-        traceback.print_exc()
-        logger.info(f"🚀 IndexManager 싱글톤 초기화 완료: {len(self.metadata)}개 도메인")
+        traceback.print_exc()🚀 IndexManager 싱글톤 초기화 완료: {len(self.metadata)}개 도메인")
         self.load_all_domains()
         self._initialized = True
 
@@ -401,11 +400,11 @@ if __name__ == "__main__":
                             meta.vectorstore = None
                         else:
                             logger.info(f"✅ {domain} FAISS 로드 성공: {doc_count}개 벡터")
-                            
-                            # 🔧 추가: 차원 검증 로직
-                            if not self._validate_faiss_dimensions(domain, meta.vectorstore):
-                                logger.error(f"❌ {domain} 차원 불일치로 FAISS 비활성화")
-                                meta.vectorstore = None
+                        
+                        # 🔧 추가: 차원 검증 로직
+                        if not self._validate_faiss_dimensions(domain, meta.vectorstore):
+                            logger.error(f"❌ {domain} 차원 불일치로 FAISS 비활성화")
+                            meta.vectorstore = None
                     else:
                         logger.info(f"✅ {domain} FAISS 로드 완료 (ntotal 확인 불가)")
                         
