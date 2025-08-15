@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """
-경상남도인재개발원 RAG 챗봇 - satisfaction_handler
+경상남도인재개발원 RAG 챗봇 - satisfaction_handler (수정본)
 
-교육과정 및 교과목 만족도 조사 데이터 전용 핸들러
-base_handler를 상속받아 만족도 도메인 특화 기능 구현
-
-주요 특징:
-- 기존 코랩 검증된 "벼리" 프롬프트 보존
-- 교육과정/교과목 만족도 통합 처리
-- 컨피던스 임계값 θ=0.68 적용
-- 만족도 점수, 순위, 의견 등 정량/정성 정보 제공
+주요 수정사항:
+✅ import 경로 수정
+✅ 클래스명 일치
+✅ 메서드 시그니처 개선
 """
 
 import logging
-from typing import List, Dict, Any, Tuple
+import re
+import uuid
+from typing import List, Dict, Any, Tuple, Optional
 
 # 프로젝트 모듈
 from handlers.base_handler import base_handler
@@ -36,16 +34,16 @@ class satisfaction_handler(base_handler):
     """
     
     def __init__(self):
+        """satisfaction_handler 초기화"""
         super().__init__(
             domain="satisfaction",
             index_name="satisfaction_index", 
             confidence_threshold=0.68
         )
-        
         logger.info("📊 satisfaction_handler 초기화 완료 (θ=0.68)")
     
     def get_system_prompt(self) -> str:
-        """만족도 전용 시스템 프롬프트 (기존 코랩 검증 버전)"""
+        """만족도 전용 시스템 프롬프트"""
         return """당신은 "벼리(영문명: Byeoli)"입니다. 경상남도인재개발원의 교육과정 및 교과목 만족도 조사 데이터를 분석하여 사용자 질문에 정확하고 친절하게 답변하는 전문 챗봇입니다.
 
 제공된 만족도 데이터를 기반으로 다음 지침을 엄격히 따르십시오:
@@ -72,22 +70,27 @@ class satisfaction_handler(base_handler):
 
 8. **순위 정보 활용**: 해당 연도 전체 교육과정/교과목 중 몇 위인지 순위 정보를 포함하여 상대적 성과를 제시하세요."""
 
-    def format_context(self, search_results: List[Tuple[str, float, Dict[str, Any]]]) -> str:
+    def format_context(self, search_results: List[Tuple[TextChunk, float]]) -> str:
         """만족도 데이터를 컨텍스트로 포맷"""
         if not search_results:
             return "관련 만족도 데이터를 찾을 수 없습니다."
         
         context_parts = []
         
-        for i, (text, score, metadata) in enumerate(search_results[:5], 1):
+        for i, (doc, score) in enumerate(search_results[:5], 1):
             # 메타데이터에서 추가 정보 추출
+            metadata = doc.metadata if hasattr(doc, 'metadata') else {}
             source_info = ""
+            
             if metadata.get('source_file'):
                 source_info = f"[출처: {metadata['source_file']}]"
             
             if metadata.get('satisfaction_type'):
                 source_info += f" [{metadata['satisfaction_type']}]"
-                
+            
+            # TextChunk 객체에서 텍스트 추출
+            text = doc.text if hasattr(doc, 'text') else str(doc)
+            
             context_part = f"""=== 만족도 데이터 {i} ===
 {source_info}
 유사도 점수: {score:.3f}
@@ -104,23 +107,21 @@ class satisfaction_handler(base_handler):
         만족도 도메인에 특화된 최종 프롬프트 생성
         """
         system_prompt = self.get_system_prompt()
-        context = self.format_context([(doc.text, score, doc.metadata) for doc, score in retrieved_docs])
+        context = self.format_context(retrieved_docs)
         
-        prompt = f"""
-        {system_prompt}
+        prompt = f"""{system_prompt}
 
-        ---
-        참고 자료 (만족도 데이터):
-        {context}
-        ---
+---
+참고 자료 (만족도 데이터):
+{context}
+---
 
-        사용자 질문:
-        {query}
+사용자 질문:
+{query}
 
-        답변:
-        """
+답변:"""
+        
         return prompt
-        
     
     def handle(self, request: QueryRequest) -> HandlerResponse:
         """
@@ -134,7 +135,7 @@ class satisfaction_handler(base_handler):
         original_threshold = self.confidence_threshold
         if follow_up:
             self.confidence_threshold = max(0.0, original_threshold - 0.02)
-            logger.info(f"🔄 Follow-up 질의: 임계값 완화 {original_threshold} → {self.confidence_threshold}")
+            logger.info(f"🔄 Follow-up 질의: 임계값 완화 {original_threshold:.2f} → {self.confidence_threshold:.2f}")
         
         try:
             # base_handler의 표준 처리 로직 사용
@@ -144,7 +145,6 @@ class satisfaction_handler(base_handler):
             if response.confidence >= self.confidence_threshold:
                 # 응답에 만족도 도메인 힌트 추가
                 if "점" in response.answer and any(keyword in query for keyword in ["만족도", "점수", "평가"]):
-                    # 만족도 점수가 포함된 답변인 경우 단위 표준화
                     response.answer = self._standardize_satisfaction_scores(response.answer)
                 
                 logger.info(f"✅ 만족도 답변 생성 완료 (confidence={response.confidence:.3f})")
@@ -158,12 +158,9 @@ class satisfaction_handler(base_handler):
         finally:
             # 임계값 복원
             self.confidence_threshold = original_threshold
-
     
     def _standardize_satisfaction_scores(self, answer: str) -> str:
         """만족도 점수 표기 표준화"""
-        import re
-        
         # 점수 패턴 정규화 (예: "4.5점" → "4.50점")
         score_pattern = r'(\d+\.\d{1})점'
         standardized = re.sub(score_pattern, r'\g<1>0점', answer)
@@ -209,9 +206,6 @@ def handle_satisfaction_query(query: str, temperature: float = 0.1, k: int = 5) 
     Returns:
         응답 텍스트
     """
-    from utils.contracts import QueryRequest
-    import uuid
-    
     handler = satisfaction_handler()
     request = QueryRequest(
         query=query,
@@ -237,28 +231,28 @@ if __name__ == "__main__":
     
     handler = satisfaction_handler()
     
-    for i, query in enumerate(test_queries, 1):
-        print(f"\n=== 테스트 {i}: {query} ===")
+    for i, query_text in enumerate(test_queries, 1):
+        print(f"\n=== 테스트 {i}: {query_text} ===")
         
         try:
-            from utils.contracts import QueryRequest
-            import uuid
-            
             request = QueryRequest(
-                query=query,
-                text=query,
+                query=query_text,
+                text=query_text,
                 context=None,
                 follow_up=False,
                 trace_id=str(uuid.uuid4())
             )
             
             response = handler.handle(request)
-            print(f"응답: {response.answer}")
+            print(f"응답: {response.answer[:200]}...")  # 처음 200자만 출력
             print(f"컨피던스: {response.confidence:.3f}")
-            print(f"소요시간: {response.elapsed_ms}ms")
+            print(f"소요시간: {response.elapsed_ms:.2f}ms")
             print(f"Citation 수: {len(response.citations)}")
+            print(f"성공 여부: {'✅' if response.success else '❌'}")
             
         except Exception as e:
             print(f"❌ 테스트 실패: {e}")
+            import traceback
+            traceback.print_exc()
     
     print("\n✅ 만족도 핸들러 테스트 완료")
