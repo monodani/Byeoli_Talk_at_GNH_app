@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 벼리톡@경상남도인재개발원 (경상남도인재개발원 RAG 챗봇) - index_manager.py (OpenAI 호환성 수정 버전)
 
@@ -16,6 +15,7 @@ IndexManager 싱글톤: 모든 벡터스토어 중앙 관리
 ✅ 에러 처리 강화
 ✅ BM25 dict 객체 올바른 추출 (핵심 수정)
 ✅ 문서 추출 방식 개선 (안전한 접근)
+🔧 추가: FAISS 차원 검증 로직 (text-embedding-3-large 통일 대응)
 """
 
 import hashlib
@@ -201,7 +201,88 @@ class IndexManager:
                 vectorstore_base_dir=Path(config.VECTORSTORE_DIR)
             )
         
-        logger.info(f"🚀 IndexManager 싱글톤 초기화 완료: {len(self.metadata)}개 도메인")
+        logger.info(f"📊 인덱스 로드 상태: {status['loaded_domains']}/{status['total_domains']}개 성공")
+        
+        # app.py에서 기대하는 형식으로 반환
+        return {
+            "success": status["loaded_domains"] > 0,
+            "loaded_indexes": list(status["domains_detail"].keys()),
+            "performance": {
+                "load_time": elapsed_time,
+                "loaded_domains": status["loaded_domains"],
+                "total_domains": status["total_domains"]
+            },
+            "error": None if status["loaded_domains"] > 0 else "No domains loaded"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ 인덱스 사전 로드 실패: {e}")
+        return {
+            "success": False,
+            "loaded_indexes": [],
+            "performance": {},
+            "error": str(e)
+        }
+
+def index_health_check() -> Dict[str, Any]:
+    """
+    IndexManager 헬스체크 (app.py 호환성 함수)
+    
+    Returns:
+        Dict[str, Any]: 시스템 상태 정보
+    """
+    try:
+        manager = get_index_manager()
+        return manager.health_check()
+    except Exception as e:
+        logger.error(f"❌ 헬스체크 실패: {e}")
+        return {
+            "total_domains": 0,
+            "loaded_domains": 0,
+            "failed_domains": 0,
+            "domains_detail": {},
+            "global_embeddings": False,
+            "error": str(e)
+        }
+
+# ================================================================
+# 4. 테스트 및 검증 
+# ================================================================
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    
+    print("🧪 IndexManager 테스트 시작")
+    
+    try:
+        # 싱글톤 테스트
+        manager1 = get_index_manager()
+        manager2 = get_index_manager()
+        assert manager1 is manager2, "싱글톤 패턴 실패"
+        print("✅ 싱글톤 패턴 테스트 통과")
+        
+        # 상태 체크
+        status = manager1.health_check()
+        print(f"📊 시스템 상태: {status}")
+        
+        # 🔧 추가: 차원 검증 테스트
+        print("\n🔍 도메인별 차원 검증:")
+        for domain in config.HANDLERS:
+            vectorstore = manager1.get_vectorstore(domain)
+            if vectorstore:
+                try:
+                    stored_dim = getattr(vectorstore.index, 'd', 'Unknown')
+                    print(f"  ✅ {domain}: {stored_dim}차원")
+                except Exception as e:
+                    print(f"  ⚠️ {domain}: 차원 확인 실패 - {e}")
+            else:
+                print(f"  ❌ {domain}: FAISS 로드 실패")
+        
+        print("🎉 모든 테스트 통과!")
+        
+    except Exception as e:
+        print(f"❌ 테스트 실패: {e}")
+        traceback.print_exc()🚀 IndexManager 싱글톤 초기화 완료: {len(self.metadata)}개 도메인")
         self.load_all_domains()
         self._initialized = True
 
@@ -236,6 +317,45 @@ class IndexManager:
             logger.info("🔄 Graceful Degradation: 임베딩 없이 기본 기능으로 동작합니다.")
             return None
 
+    def _validate_faiss_dimensions(self, domain: str, vectorstore: FAISS) -> bool:
+        """
+        🔧 추가: FAISS 인덱스 차원 검증 (text-embedding-3-large 통일 대응)
+        
+        Args:
+            domain: 도메인 이름
+            vectorstore: 로드된 FAISS 벡터스토어
+            
+        Returns:
+            bool: 차원 일치 여부
+        """
+        try:
+            if not hasattr(vectorstore, 'index'):
+                logger.warning(f"⚠️ {domain} FAISS에 index 속성이 없음")
+                return False
+            
+            # 저장된 인덱스 차원
+            stored_dim = getattr(vectorstore.index, 'd', None)
+            if stored_dim is None:
+                logger.warning(f"⚠️ {domain} FAISS 인덱스에서 차원 정보를 찾을 수 없음")
+                return False
+            
+            # 현재 설정된 임베딩 차원
+            expected_dim = config.EMBEDDING_DIMENSION
+            
+            # 차원 일치 확인
+            if stored_dim != expected_dim:
+                logger.error(f"❌ {domain} FAISS 차원 불일치:")
+                logger.error(f"   저장된 차원: {stored_dim}")
+                logger.error(f"   현재 모델 차원: {expected_dim} ({config.EMBEDDING_MODEL})")
+                logger.error(f"   해결방법: {domain} 도메인을 {config.EMBEDDING_MODEL}로 재빌드 필요")
+                return False
+            
+            logger.info(f"✅ {domain} FAISS 차원 검증 성공: {stored_dim}차원")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠️ {domain} FAISS 차원 검증 중 오류: {e}")
+            return False
 
     def _load_domain(self, domain: str):
         """
@@ -279,8 +399,18 @@ class IndexManager:
                             meta.vectorstore = None
                         else:
                             logger.info(f"✅ {domain} FAISS 로드 성공: {doc_count}개 벡터")
+                            
+                            # 🔧 추가: 차원 검증 로직
+                            if not self._validate_faiss_dimensions(domain, meta.vectorstore):
+                                logger.error(f"❌ {domain} 차원 불일치로 FAISS 비활성화")
+                                meta.vectorstore = None
                     else:
                         logger.info(f"✅ {domain} FAISS 로드 완료 (ntotal 확인 불가)")
+                        
+                        # 🔧 추가: ntotal 확인 불가 시에도 차원 검증 수행
+                        if not self._validate_faiss_dimensions(domain, meta.vectorstore):
+                            logger.error(f"❌ {domain} 차원 불일치로 FAISS 비활성화")
+                            meta.vectorstore = None
                 except Exception as faiss_error:
                     logger.error(f"❌ {domain} FAISS 로드 실패: {faiss_error}")
                     logger.debug(f"상세 오류:\n{traceback.format_exc()}")
