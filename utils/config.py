@@ -93,7 +93,7 @@ class AppConfig:
     OPENAI_MODEL_ROUTER: str = field(default_factory=lambda: os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL_ROUTER", "gpt-4o-mini")))
     
     # 임베딩 설정
-    EMBEDDING_MODEL: str = field(default_factory=lambda: os.getenv("OPENAI_EMBEDDING_MODEL", os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")))
+    EMBEDDING_MODEL: str = field(default_factory=lambda: os.getenv("OPENAI_EMBEDDING_MODEL", os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")))
     EMBEDDING_DIMENSION: int = field(default_factory=lambda: int(os.getenv("EMBEDDING_DIMENSION", "1536")))
     
     # 검색 설정
