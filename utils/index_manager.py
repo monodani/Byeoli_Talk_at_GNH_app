@@ -216,14 +216,14 @@ class IndexManager:
             "error": None if status["loaded_domains"] > 0 else "No domains loaded"
         }
         
-    except Exception as e:
-        logger.error(f"❌ 인덱스 사전 로드 실패: {e}")
-        return {
-            "success": False,
-            "loaded_indexes": [],
-            "performance": {},
-            "error": str(e)
-        }
+        except Exception as e:
+            logger.error(f"❌ 인덱스 사전 로드 실패: {e}")
+            return {
+                "success": False,
+                "loaded_indexes": [],
+                "performance": {},
+                "error": str(e)
+            }
 
 def index_health_check() -> Dict[str, Any]:
     """
