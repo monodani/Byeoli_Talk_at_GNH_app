@@ -1,11 +1,11 @@
 {
-  "total_domains": 5,
-  "successful_domains": 5,
+  "total_domains": 6,
+  "successful_domains": 6,
   "failed_domains": 0,
   "failed_domain_list": [],
-  "start_time": "2025-08-15T10:05:28.062736",
-  "end_time": "2025-08-15T10:06:19.307561",
-  "elapsed_time": "0:00:51.244825",
+  "start_time": "2025-08-15T10:27:43.460725",
+  "end_time": "2025-08-15T10:28:44.979440",
+  "elapsed_time": "0:01:01.518715",
   "build_details": {
     "cyber": {
       "status": "success",
@@ -13,7 +13,7 @@
         "domain": "cyber",
         "vectorstore_exists": true,
         "faiss_size_mb": 8.789105415344238,
-        "last_modified": "2025-08-15T10:05:37.016386",
+        "last_modified": "2025-08-15T10:27:50.206385",
         "source_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/data/cyber",
         "vectorstore_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/vectorstores/vectorstore_cyber"
       },
@@ -24,8 +24,8 @@
       "stats": {
         "domain": "menu",
         "vectorstore_exists": true,
-        "faiss_size_mb": 0.08793354034423828,
-        "last_modified": "2025-08-15T10:05:50.067586",
+        "faiss_size_mb": 0.09379291534423828,
+        "last_modified": "2025-08-15T10:28:06.376249",
         "source_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/data/menu",
         "vectorstore_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/vectorstores/vectorstore_menu"
       },
@@ -37,7 +37,7 @@
         "domain": "notice",
         "vectorstore_exists": true,
         "faiss_size_mb": 0.16996479034423828,
-        "last_modified": "2025-08-15T10:05:51.447608",
+        "last_modified": "2025-08-15T10:28:07.776237",
         "source_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/data/notice",
         "vectorstore_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/vectorstores/vectorstore_notice"
       },
@@ -49,9 +49,21 @@
         "domain": "satisfaction",
         "vectorstore_exists": true,
         "faiss_size_mb": 20.17973041534424,
-        "last_modified": "2025-08-15T10:06:05.898827",
+        "last_modified": "2025-08-15T10:28:19.462136",
         "source_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/data/satisfaction",
         "vectorstore_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/vectorstores/vectorstore_unified_satisfaction"
+      },
+      "error": null
+    },
+    "general": {
+      "status": "success",
+      "stats": {
+        "domain": "general",
+        "vectorstore_exists": true,
+        "faiss_size_mb": 0.3105897903442383,
+        "last_modified": "2025-08-15T10:28:31.814030",
+        "source_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/data/general",
+        "vectorstore_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/vectorstores/vectorstore_general"
       },
       "error": null
     },
@@ -61,7 +73,7 @@
         "domain": "publish",
         "vectorstore_exists": true,
         "faiss_size_mb": 1.2539491653442383,
-        "last_modified": "2025-08-15T10:06:19.303035",
+        "last_modified": "2025-08-15T10:28:44.975922",
         "source_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/data/publish",
         "vectorstore_dir": "/home/runner/work/Byeoli_Talk_at_GNHRD_app/Byeoli_Talk_at_GNHRD_app/vectorstores/vectorstore_unified_publish"
       },
