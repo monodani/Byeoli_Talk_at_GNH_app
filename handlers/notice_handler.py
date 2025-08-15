@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple, Optional
 
 # 프로젝트 모듈
-from handlers.base_handler import BaseHandler
+from handlers.base_handler import base_handler
 from utils.contracts import QueryRequest, HandlerResponse
 from utils.textifier import TextChunk
 
@@ -27,7 +27,7 @@ from utils.textifier import TextChunk
 logger = logging.getLogger(__name__)
 
 
-class notice_handler(BaseHandler):
+class notice_handler(base_handler):
     """
     공지사항 전용 핸들러
     
