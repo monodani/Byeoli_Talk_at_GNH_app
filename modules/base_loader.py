@@ -241,8 +241,8 @@ class BaseLoader(ABC):
     def _create_faiss_vectorstore(self, chunks: List[TextChunk]) -> bool:
         """FAISS 벡터스토어 + BM25 인덱스 통합 생성"""
         try:
-            # ✅ 임베딩 모델 명시적 지정: text-embedding-3-small
-            embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+            # ✅ 임베딩 모델 명시적 지정: text-embedding-3-large
+            embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
             
             # 텍스트와 메타데이터 추출
             texts = [chunk.text for chunk in chunks]
@@ -334,7 +334,7 @@ class BaseLoader(ABC):
                 return None
             
             # ✅ 로드 시에도 동일한 임베딩 모델 사용
-            embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+            embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
             vectorstore = FAISS.load_local(
                 folder_path=str(self.vectorstore_dir),
                 embeddings=embeddings,
