@@ -364,13 +364,13 @@ class MenuLoader(BaseLoader):
             
             return TextChunk(
                 text=summary_text,
+                source_id=f'menu/menu.png#{week}_summary',
                 metadata={
                     'source_file': 'menu.png',
                     'week': week,
                     'chunk_type': 'weekly_summary',
                     'cache_ttl': self.cache_ttl,
                     'priority': 'high',
-                    'source_id': f'menu/menu.png#{week}_summary',
                     'processing_date': datetime.now().isoformat()
                 }
             )
@@ -402,7 +402,6 @@ class MenuLoader(BaseLoader):
                     'menu_count': len(menu_items),
                     'chunk_type': 'meal_detail',
                     'cache_ttl': self.cache_ttl,
-                    'source_id': f'menu/menu.png#{current_week}_emergency',
                     'processing_date': datetime.now().isoformat()
                 }
             )
@@ -430,14 +429,13 @@ class MenuLoader(BaseLoader):
             
             return TextChunk(
                 text=fallback_text,
-                source_id=f'menu/menu.png#{week}_{day}_{meal_type}',
+                source_id=f'menu/menu.png#{current_week}_emergency',
                 metadata={
                     'source_file': 'menu.png',
                     'week': current_week,
                     'chunk_type': 'emergency_fallback',
                     'quality_level': 'fallback',
                     'cache_ttl': 3600,  # 1시간 TTL (짧게)
-                    'source_id': f'menu/menu.png#{current_week}_emergency',
                     'processing_date': datetime.now().isoformat()
                 }
             )
