@@ -15,6 +15,13 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+# PyPDF2 직접 임포트 (PDFProcessor 의존성 제거)
+try:
+    from PyPDF2 import PdfReader
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
 # 프로젝트 모듈 임포트
 from modules.base_loader import BaseLoader
 from utils.textifier import TextChunk, PDFProcessor
@@ -36,6 +43,7 @@ class GeneralLoader(BaseLoader):
     특징:
     - notice 로더와 동일한 process_domain_data(self) 시그니처
     - 원본 파일 직접 읽기
+    - PyPDF2 직접 사용 (PDFProcessor 의존성 제거)
     - 기존 코랩 템플릿 완벽 보존
     - 해시 기반 증분 빌드 지원
     """
@@ -47,9 +55,7 @@ class GeneralLoader(BaseLoader):
             vectorstore_dir=config.ROOT_DIR / "vectorstores" / "vectorstore_general",
             index_name="general_index"
         )
-        
-        # PDF 처리기 초기화
-        self.pdf_processor = PDFProcessor()
+
         
         # 처리할 파일 정의
         self.hakchik_file = self.source_dir / "hakchik.pdf"
@@ -77,8 +83,12 @@ class GeneralLoader(BaseLoader):
         return all_chunks
     
     def _process_pdf_files(self) -> List[TextChunk]:
-        """PDF 파일들 직접 읽기 및 처리"""
+        """PDF 파일들 직접 읽기 및 처리 (PyPDF2 직접 사용)"""
         chunks = []
+        
+        if not PDF_AVAILABLE:
+            logger.error("❌ PyPDF2 라이브러리가 설치되지 않았습니다")
+            return chunks
         
         pdf_files = [
             (self.hakchik_file, "regulations", "통합규정문서"),
@@ -93,33 +103,53 @@ class GeneralLoader(BaseLoader):
             try:
                 logger.info(f"📄 PDF 처리 시작: {pdf_file}")
                 
-                # PDF 텍스트 추출
-                pdf_chunks = self.pdf_processor.process_pdf(pdf_file)
-                
-                for idx, chunk in enumerate(pdf_chunks):
-                    # 메타데이터 강화
-                    enhanced_metadata = {
-                        **chunk.metadata,
-                        'source_file': pdf_file.name,
-                        'source_id': f'general/{pdf_file.name}#page_{chunk.metadata.get("page_number", idx)}',
-                        'file_type': 'pdf',
-                        'category': category,
-                        'doc_type': doc_type,
-                        'domain': 'general',
-                        'chunk_index': idx,
-                        'cache_ttl': 2592000,  # 30일 TTL
-                        'processing_date': datetime.now().isoformat(),
-                        'chunk_type': 'document'
-                    }
+                # PyPDF2로 직접 PDF 읽기
+                with open(pdf_file, 'rb') as file:
+                    pdf_reader = PdfReader(file)
+                    total_pages = len(pdf_reader.pages)
                     
-                    enhanced_chunk = TextChunk(
-                        text=chunk.text,
-                        metadata=enhanced_metadata
-                    )
+                    logger.info(f"PDF 총 페이지 수: {total_pages}")
                     
-                    chunks.append(enhanced_chunk)
+                    for page_num, page in enumerate(pdf_reader.pages, 1):
+                        try:
+                            # 페이지 텍스트 추출
+                            page_text = page.extract_text()
+                            
+                            if not page_text or len(page_text.strip()) < 50:
+                                logger.debug(f"페이지 {page_num}: 텍스트가 너무 짧거나 없음 (건너뜀)")
+                                continue
+                            
+                            # 텍스트 청크 생성
+                            chunk_text = f"[{doc_type}] 페이지 {page_num}\n\n{page_text.strip()}"
+                            
+                            # 메타데이터 생성
+                            metadata = {
+                                'source_file': pdf_file.name,
+                                'source_id': f'general/{pdf_file.name}#page_{page_num}',
+                                'file_type': 'pdf',
+                                'category': category,
+                                'doc_type': doc_type,
+                                'domain': 'general',
+                                'page_number': page_num,
+                                'total_pages': total_pages,
+                                'char_count': len(page_text),
+                                'cache_ttl': 2592000,  # 30일 TTL
+                                'processing_date': datetime.now().isoformat(),
+                                'chunk_type': 'document'
+                            }
+                            
+                            chunk = TextChunk(
+                                text=chunk_text,
+                                metadata=metadata
+                            )
+                            
+                            chunks.append(chunk)
+                            
+                        except Exception as e:
+                            logger.error(f"페이지 {page_num} 처리 실패: {e}")
+                            continue
                 
-                logger.info(f"✅ {pdf_file.name} 처리 완료: {len(pdf_chunks)}개 청크")
+                logger.info(f"✅ {pdf_file.name} 처리 완료: {len([c for c in chunks if c.metadata.get('source_file') == pdf_file.name])}개 청크")
                 
             except Exception as e:
                 logger.error(f"❌ PDF 파일 처리 실패 ({pdf_file}): {e}")
