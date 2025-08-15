@@ -584,3 +584,121 @@ def validate_keyword_rules():
     
     for domain, keywords in KEYWORD_MATCHING_RULES.items():
         for keyword, score in keywords.items():
+            if not (0.0 <= score <= 1.0):
+                issues.append(f"{domain}.{keyword}: score {score} out of range [0.0, 1.0]")
+            
+            if keyword in KEYWORD_STOP_WORDS:
+                issues.append(f"{domain}.{keyword}: keyword is in stop words")
+    
+    if issues:
+        print("❌ 키워드 규칙 검증 실패:")
+        for issue in issues:
+            print(f"  - {issue}")
+    else:
+        print("✅ 키워드 규칙 검증 통과")
+    
+    return len(issues) == 0
+
+
+def print_config_summary():
+    """설정 요약 출력"""
+    config = get_config()
+    
+    print("\n🔧 Byeoli Talk at GNHRD 설정 요약")
+    print("=" * 50)
+    print(f"📁 프로젝트 루트: {config.ROOT_DIR}")
+    print(f"🔧 앱 모드: {config.APP_MODE}")
+    print(f"📝 로그 레벨: {config.LOG_LEVEL}")
+    print(f"🤖 메인 모델: {config.OPENAI_MODEL_MAIN}")
+    print(f"🔄 라우터 모델: {config.OPENAI_MODEL_ROUTER}")
+    print(f"🎯 임베딩 모델: {config.EMBEDDING_MODEL} ({config.EMBEDDING_DIMENSION}차원)")
+    print(f"⏱️ 총 타임박스: {config.ROUTER_TOTAL_TIMEOUT}초")
+    print(f"🎯 처리 도메인: {', '.join(config.HANDLERS)}")
+    
+    print(f"\n📊 컨피던스 임계값:")
+    for handler, threshold in config.confidence_thresholds.items():
+        print(f"  {handler}: {threshold}")
+    
+    print(f"\n🗂️ 캐시 TTL 설정:")
+    for handler, ttl in config.cache_ttl_config.items():
+        hours = ttl // 3600
+        print(f"  {handler}: {hours}시간" if hours < 24 else f"  {handler}: {ttl//86400}일")
+    
+    print(f"\n🎯 키워드 규칙 통계:")
+    for domain, keywords in KEYWORD_MATCHING_RULES.items():
+        print(f"  {domain}: {len(keywords)}개 키워드")
+
+
+# ================================================================
+# 테스트 및 검증
+# ================================================================
+
+def test_config():
+    """설정 모듈 테스트"""
+    print("🧪 Config 모듈 테스트 시작")
+    
+    try:
+        # 설정 로드 테스트
+        config = get_config()
+        print("✅ 설정 로드 성공")
+        
+        # ✅ HANDLERS 필드 검증 추가
+        assert hasattr(config, 'HANDLERS'), "HANDLERS 필드가 없습니다"
+        assert isinstance(config.HANDLERS, list), "HANDLERS가 리스트가 아닙니다"
+        assert len(config.HANDLERS) == 6, f"HANDLERS 개수 불일치: {len(config.HANDLERS)}"
+        expected_handlers = ["satisfaction", "general", "publish", "cyber", "menu", "notice"]
+        for handler in expected_handlers:
+            assert handler in config.HANDLERS, f"필수 핸들러 누락: {handler}"
+        print("✅ HANDLERS 필드 검증 통과")
+        
+        # 주요 설정값 검증
+        assert config.OPENAI_MODEL_ROUTER == "gpt-4o-mini", f"라우터 모델 불일치: {config.OPENAI_MODEL_ROUTER}"
+        assert config.CONFIDENCE_THRESHOLD_GENERAL == 0.70, f"일반 핸들러 임계값 불일치: {config.CONFIDENCE_THRESHOLD_GENERAL}"
+        assert config.CONVERSATION_RECENT_MESSAGES_WINDOW == 6, f"대화 윈도우 크기 불일치: {config.CONVERSATION_RECENT_MESSAGES_WINDOW}"
+        print("✅ 주요 설정값 검증 통과")
+        
+        # 🔧 추가: 임베딩 모델-차원 일치성 검증
+        assert config.EMBEDDING_MODEL == "text-embedding-3-large", f"임베딩 모델 불일치: {config.EMBEDDING_MODEL}"
+        assert config.EMBEDDING_DIMENSION == 3072, f"임베딩 차원 불일치: {config.EMBEDDING_DIMENSION}"
+        print("✅ 임베딩 설정 검증 통과")
+        
+        # 키워드 규칙 검증
+        assert validate_keyword_rules(), "키워드 규칙 검증 실패"
+        print("✅ 키워드 규칙 검증 통과")
+        
+        # 디렉터리 생성 확인
+        essential_dirs = [config.CACHE_DIR, config.LOGS_DIR, config.VECTORSTORE_DIR]
+        for dir_path in essential_dirs:
+            assert Path(dir_path).exists(), f"필수 디렉터리 없음: {dir_path}"
+        print("✅ 필수 디렉터리 확인 완료")
+        
+        # get() 메서드 테스트
+        api_key = config.get('OPENAI_API_KEY')
+        assert api_key == os.getenv('OPENAI_API_KEY', ''), "get() 메서드 테스트 실패"
+        
+        default_value = config.get('NON_EXISTENT_KEY', 'default')
+        assert default_value == 'default', "get() 메서드 기본값 테스트 실패"
+        print("✅ get() 메서드 테스트 통과")
+        
+        print("\n🎉 모든 테스트 통과!")
+        return True
+        
+    except Exception as e:
+        print(f"\n❌ 테스트 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+# ================================================================
+# 전역 설정 인스턴스 (핵심!)
+# ================================================================
+
+config = get_config()
+
+if __name__ == "__main__":
+    # 설정 테스트 및 요약 출력
+    if test_config():
+        print_config_summary()
+    else:
+        print("💥 설정 테스트 실패 - 문제를 해결한 후 다시 시도하세요.")
