@@ -6,17 +6,19 @@
 - 공통 인터페이스 정의
 - 해시 기반 증분 빌드
 - 벡터스토어 자동 생성
+- BM25 인덱스 자동 생성
 - 에러 처리 및 로깅
 
 주요 메서드:
 - process_domain_data(): 각 로더에서 구현
-- build_vectorstore(): FAISS 벡터스토어 생성
+- build_vectorstore(): FAISS 벡터스토어 + BM25 인덱스 생성
 - validate_schema(): 스키마 검증 (선택적)
 """
 
 import logging
 import hashlib
 import time
+import pickle
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -33,6 +35,13 @@ try:
 except ImportError:
     FAISS_AVAILABLE = False
 
+# BM25 라이브러리 (선택적)
+try:
+    from rank_bm25 import BM25Okapi
+    BM25_AVAILABLE = True
+except ImportError:
+    BM25_AVAILABLE = False
+
 # 로깅 설정
 logger = logging.getLogger(__name__)
 
@@ -44,6 +53,7 @@ class BaseLoader(ABC):
     공통 기능:
     - 도메인별 데이터 처리
     - FAISS 벡터스토어 생성
+    - BM25 인덱스 생성
     - 해시 기반 증분 빌드
     - 에러 처리 및 로깅
     """
@@ -128,14 +138,21 @@ class BaseLoader(ABC):
             return str(int(time.time()))  # 폴백: 타임스탬프
     
     def needs_rebuild(self) -> bool:
-        """재빌드 필요 여부 확인"""
+        """재빌드 필요 여부 확인 (FAISS + BM25)"""
         try:
-            # 벡터스토어 파일 존재 확인
+            # FAISS 파일 확인
             faiss_file = self.vectorstore_dir / f"{self.index_name}.faiss"
             pkl_file = self.vectorstore_dir / f"{self.index_name}.pkl"
+            bm25_file = self.vectorstore_dir / f"{self.index_name}.bm25"
             
+            # FAISS 파일이 없으면 빌드 필요
             if not (faiss_file.exists() and pkl_file.exists()):
-                logger.info(f"🔨 {self.domain}: 벡터스토어 파일이 없어서 새로 빌드")
+                logger.info(f"🔨 {self.domain}: FAISS 파일이 없어서 새로 빌드")
+                return True
+                
+            # BM25 파일이 없으면 빌드 필요
+            if not bm25_file.exists():
+                logger.info(f"🔨 {self.domain}: BM25 파일이 없어서 새로 빌드")
                 return True
             
             # 해시 파일 확인
@@ -153,7 +170,7 @@ class BaseLoader(ABC):
                 logger.info(f"🔨 {self.domain}: 소스 데이터 변경으로 재빌드")
                 return True
             
-            logger.info(f"✅ {self.domain}: 벡터스토어가 최신 상태")
+            logger.info(f"✅ {self.domain}: FAISS + BM25가 최신 상태")
             return False
             
         except Exception as e:
@@ -222,7 +239,7 @@ class BaseLoader(ABC):
             return False
     
     def _create_faiss_vectorstore(self, chunks: List[TextChunk]) -> bool:
-        """FAISS 벡터스토어 생성 (내부 메서드)"""
+        """FAISS 벡터스토어 + BM25 인덱스 통합 생성"""
         try:
             # ✅ 임베딩 모델 명시적 지정: text-embedding-3-small
             embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
@@ -238,19 +255,30 @@ class BaseLoader(ABC):
                 metadatas=metadatas
             )
             
-            # 저장
+            # FAISS 저장
             vectorstore.save_local(
                 folder_path=str(self.vectorstore_dir),
                 index_name=self.index_name
             )
             
+            # ✅ BM25 인덱스 생성 및 저장
+            bm25_success = self._create_bm25_index(texts, metadatas)
+            
             # 생성 확인
             faiss_file = self.vectorstore_dir / f"{self.index_name}.faiss"
             pkl_file = self.vectorstore_dir / f"{self.index_name}.pkl"
+            bm25_file = self.vectorstore_dir / f"{self.index_name}.bm25"
             
             if faiss_file.exists() and pkl_file.exists():
-                file_size = faiss_file.stat().st_size / (1024*1024)  # MB
-                logger.info(f"💾 {self.domain}: 벡터스토어 저장됨 ({file_size:.1f}MB)")
+                faiss_size = faiss_file.stat().st_size / (1024*1024)
+                bm25_size = bm25_file.stat().st_size / (1024*1024) if bm25_file.exists() else 0
+                
+                logger.info(f"💾 {self.domain}: FAISS 저장됨 ({faiss_size:.1f}MB)")
+                if bm25_success:
+                    logger.info(f"💾 {self.domain}: BM25 저장됨 ({bm25_size:.1f}MB)")
+                else:
+                    logger.warning(f"⚠️ {self.domain}: BM25 생성 실패")
+                
                 return True
             else:
                 logger.error(f"❌ {self.domain}: 벡터스토어 파일 생성 실패")
@@ -258,6 +286,44 @@ class BaseLoader(ABC):
                 
         except Exception as e:
             logger.error(f"❌ {self.domain}: FAISS 벡터스토어 생성 실패: {e}")
+            return False
+    
+    def _create_bm25_index(self, texts: List[str], metadatas: List[Dict]) -> bool:
+        """BM25 인덱스 생성 및 저장"""
+        try:
+            if not BM25_AVAILABLE:
+                logger.warning(f"⚠️ {self.domain}: rank_bm25 라이브러리가 없어 BM25 인덱스 건너뜀")
+                return False
+            
+            logger.info(f"🔍 {self.domain}: BM25 인덱스 생성 중...")
+            
+            # 텍스트 토큰화 (간단한 공백 기반)
+            tokenized_texts = [text.split() for text in texts]
+            
+            # BM25 인덱스 생성
+            bm25_index = BM25Okapi(tokenized_texts)
+            
+            # BM25 데이터 패키징
+            bm25_data = {
+                'bm25_index': bm25_index,
+                'texts': texts,
+                'metadatas': metadatas,
+                'tokenized_texts': tokenized_texts,
+                'domain': self.domain,
+                'created_at': datetime.now().isoformat(),
+                'total_documents': len(texts)
+            }
+            
+            # .bm25 파일로 저장
+            bm25_file = self.vectorstore_dir / f"{self.index_name}.bm25"
+            with open(bm25_file, 'wb') as f:
+                pickle.dump(bm25_data, f)
+            
+            logger.info(f"✅ {self.domain}: BM25 인덱스 생성 완료 ({len(texts)}개 문서)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ {self.domain}: BM25 인덱스 생성 실패: {e}")
             return False
     
     def load_vectorstore(self) -> Optional[FAISS]:
@@ -283,16 +349,38 @@ class BaseLoader(ABC):
             logger.error(f"❌ {self.domain}: 벡터스토어 로드 실패: {e}")
             return None
     
+    def load_bm25_index(self) -> Optional[Dict]:
+        """생성된 BM25 인덱스 로드"""
+        try:
+            bm25_file = self.vectorstore_dir / f"{self.index_name}.bm25"
+            
+            if not bm25_file.exists():
+                logger.warning(f"⚠️ {self.domain}: BM25 파일이 없습니다")
+                return None
+            
+            with open(bm25_file, 'rb') as f:
+                bm25_data = pickle.load(f)
+            
+            logger.info(f"📚 {self.domain}: BM25 인덱스 로드 성공")
+            return bm25_data
+            
+        except Exception as e:
+            logger.error(f"❌ {self.domain}: BM25 인덱스 로드 실패: {e}")
+            return None
+    
     def get_stats(self) -> Dict[str, Any]:
-        """벡터스토어 통계 정보"""
+        """벡터스토어 + BM25 통계 정보"""
         try:
             faiss_file = self.vectorstore_dir / f"{self.index_name}.faiss"
             pkl_file = self.vectorstore_dir / f"{self.index_name}.pkl"
+            bm25_file = self.vectorstore_dir / f"{self.index_name}.bm25"
             
             stats = {
                 'domain': self.domain,
                 'vectorstore_exists': faiss_file.exists() and pkl_file.exists(),
+                'bm25_exists': bm25_file.exists(),
                 'faiss_size_mb': faiss_file.stat().st_size / (1024*1024) if faiss_file.exists() else 0,
+                'bm25_size_mb': bm25_file.stat().st_size / (1024*1024) if bm25_file.exists() else 0,
                 'last_modified': datetime.fromtimestamp(faiss_file.stat().st_mtime).isoformat() if faiss_file.exists() else None,
                 'source_dir': str(self.source_dir),
                 'vectorstore_dir': str(self.vectorstore_dir)
