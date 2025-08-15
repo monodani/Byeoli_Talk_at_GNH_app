@@ -81,7 +81,7 @@ class base_handler(ABC):
             
             embeddings = OpenAIEmbeddings(
                 api_key=api_key,
-                model=getattr(config, 'EMBEDDING_MODEL', 'text-embedding-3-small')
+                model=getattr(config, 'EMBEDDING_MODEL', 'text-embedding-3-large')
             )
             
             logger.debug(f"✅ {self.domain} OpenAIEmbeddings 초기화 성공")
