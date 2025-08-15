@@ -286,77 +286,97 @@ class IndexManager:
                     logger.debug(f"상세 오류:\n{traceback.format_exc()}")
                     meta.vectorstore = None
             
-            # ✅ 수정: 안전한 문서 추출 방식
+            # ✅ 수정: 정확한 문제 해결 - 한글 처리 및 TextChunk 변환 개선
             meta.documents = []
             if meta.vectorstore:
                 try:
-                    # 방법 1: similarity_search로 샘플 검색 (가장 안전)
-                    test_results = meta.vectorstore.similarity_search("sample", k=min(10, meta.vectorstore.index.ntotal))
-                    logger.info(f"📄 {domain} FAISS 샘플 검색: {len(test_results)}개 결과")
-                    
-                    # 방법 2: docstore 안전한 접근 시도
+                    # 방법 1: _dict 직접 접근 (가장 확실한 방법)
                     docstore_docs = []
-                    if hasattr(meta.vectorstore, 'docstore'):
-                        try:
-                            # index_to_docstore_id를 통한 안전한 접근
-                            if hasattr(meta.vectorstore, 'index_to_docstore_id'):
-                                doc_ids = list(meta.vectorstore.index_to_docstore_id.values())
-                                logger.info(f"📄 {domain} docstore ID 개수: {len(doc_ids)}")
-                                
-                                for doc_id in doc_ids[:100]:  # 최대 100개만 로드
-                                    try:
-                                        doc = meta.vectorstore.docstore.search(doc_id)
-                                        if doc and hasattr(doc, 'page_content'):
-                                            docstore_docs.append(doc)
-                                    except:
-                                        continue
-                                        
-                                logger.info(f"📄 {domain} docstore에서 {len(docstore_docs)}개 문서 추출")
-                            
-                            # 방법 3: _dict 접근 (폴백)
-                            elif hasattr(meta.vectorstore.docstore, '_dict'):
-                                raw_documents = list(meta.vectorstore.docstore._dict.values())
-                                docstore_docs = raw_documents
-                                logger.info(f"📄 {domain} _dict에서 {len(docstore_docs)}개 문서 추출")
-                                
-                        except Exception as docstore_error:
-                            logger.debug(f"📄 {domain} docstore 접근 실패: {docstore_error}")
+                    if hasattr(meta.vectorstore, 'docstore') and hasattr(meta.vectorstore.docstore, '_dict'):
+                        raw_documents = list(meta.vectorstore.docstore._dict.values())
+                        logger.info(f"📄 {domain} _dict에서 {len(raw_documents)}개 원본 문서 발견")
+                        docstore_docs = raw_documents
                     
-                    # TextChunk 변환
-                    all_docs = docstore_docs if docstore_docs else test_results
+                    # 방법 2: index_to_docstore_id 매핑 사용 (폴백)
+                    elif hasattr(meta.vectorstore, 'index_to_docstore_id'):
+                        doc_ids = list(meta.vectorstore.index_to_docstore_id.values())
+                        logger.info(f"📄 {domain} docstore ID 개수: {len(doc_ids)}")
+                        
+                        for doc_id in doc_ids[:100]:  # 최대 100개만 로드
+                            try:
+                                doc = meta.vectorstore.docstore.search(doc_id)
+                                if doc and hasattr(doc, 'page_content'):
+                                    docstore_docs.append(doc)
+                            except Exception as id_error:
+                                logger.debug(f"📄 {domain} docstore ID {doc_id} 검색 실패: {id_error}")
+                                continue
+                        
+                        logger.info(f"📄 {domain} docstore에서 {len(docstore_docs)}개 문서 추출")
                     
-                    for i, doc in enumerate(all_docs[:50]):  # 최대 50개로 제한
+                    # TextChunk 변환 (개선된 버전)
+                    successful_chunks = 0
+                    for i, doc in enumerate(docstore_docs[:50]):  # 최대 50개로 제한
                         try:
-                            # 문서 내용 및 메타데이터 추출
-                            if hasattr(doc, 'page_content'):
-                                text = doc.page_content
-                                metadata = getattr(doc, 'metadata', {}) or {}
-                            else:
-                                text = str(doc)
-                                metadata = {}
+                            # Document 객체 검증
+                            if not hasattr(doc, 'page_content'):
+                                logger.debug(f"📄 {domain} 문서 {i}: page_content 속성 없음")
+                                continue
                             
-                            # TextChunk 생성
+                            # 텍스트 추출 및 정리
+                            text = doc.page_content
+                            if not text or not isinstance(text, str) or not text.strip():
+                                logger.debug(f"📄 {domain} 문서 {i}: 빈 텍스트")
+                                continue
+                            
+                            # 메타데이터 안전한 추출
+                            doc_metadata = {}
+                            if hasattr(doc, 'metadata') and doc.metadata:
+                                try:
+                                    doc_metadata = dict(doc.metadata)
+                                except Exception as meta_error:
+                                    logger.debug(f"📄 {domain} 문서 {i} 메타데이터 변환 실패: {meta_error}")
+                                    doc_metadata = {'conversion_error': str(meta_error)}
+                            
+                            # TextChunk 생성 (안전한 방식)
                             chunk = TextChunk(
-                                text=text,
-                                metadata=metadata,
-                                source_id=metadata.get('source_id', f'{domain}_{i}'),
-                                chunk_index=i
+                                text=text.strip(),
+                                metadata=doc_metadata,
+                                source_id=doc_metadata.get('source_id', f'{domain}_{successful_chunks}'),
+                                chunk_index=successful_chunks
                             )
+                            
                             meta.documents.append(chunk)
+                            successful_chunks += 1
                             
                         except Exception as chunk_error:
-                            logger.debug(f"📄 {domain} 청크 {i} 변환 실패: {chunk_error}")
+                            logger.warning(f"📄 {domain} 청크 {i} 변환 실패: {chunk_error}")
+                            logger.debug(f"📄 {domain} 청크 변환 상세 오류: {traceback.format_exc()}")
                             continue
                     
-                    logger.info(f"✅ {domain} 문서 로드 완료: {len(meta.documents)}개")
+                    if meta.documents:
+                        logger.info(f"✅ {domain} 문서 로드 성공: {len(meta.documents)}개 (원본: {len(docstore_docs)}개)")
+                        
+                        # 첫 번째 문서 샘플 로깅 (디버깅용)
+                        if meta.documents:
+                            sample_text = meta.documents[0].text[:100] + "..." if len(meta.documents[0].text) > 100 else meta.documents[0].text
+                            logger.debug(f"📄 {domain} 샘플 텍스트: {sample_text}")
+                    else:
+                        logger.warning(f"⚠️ {domain} TextChunk 변환 결과 없음 (원본: {len(docstore_docs)}개)")
+                        # 폴백: 더미 문서 생성
+                        meta.documents = [TextChunk(
+                            text=f"{domain} 도메인 정보 (변환 실패)",
+                            metadata={'domain': domain, 'conversion_failed': True},
+                            source_id=f'{domain}_dummy',
+                            chunk_index=0
+                        )]
                     
                 except Exception as doc_error:
-                    logger.warning(f"⚠️ {domain} 문서 추출 실패: {doc_error}")
+                    logger.error(f"⚠️ {domain} 문서 추출 치명적 실패: {doc_error}")
                     logger.debug(f"문서 추출 상세 오류:\n{traceback.format_exc()}")
                     
                     # 폴백: 더미 문서 생성
                     meta.documents = [TextChunk(
-                        text=f"{domain} 도메인 정보 (문서 추출 실패)",
+                        text=f"{domain} 도메인 정보 (추출 실패)",
                         metadata={'domain': domain, 'extraction_failed': True},
                         source_id=f'{domain}_dummy',
                         chunk_index=0
