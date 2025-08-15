@@ -364,7 +364,6 @@ class MenuLoader(BaseLoader):
             
             return TextChunk(
                 text=summary_text,
-                source_id=f'menu/menu.png#{week}_summary',
                 metadata={
                     'source_file': 'menu.png',
                     'week': week,
@@ -403,7 +402,7 @@ class MenuLoader(BaseLoader):
                     'menu_count': len(menu_items),
                     'chunk_type': 'meal_detail',
                     'cache_ttl': self.cache_ttl,
-                    'source_id': f'menu/menu.png#{week}_{day}_{meal_type}',
+                    'source_id': f'menu/menu.png#{current_week}_emergency',
                     'processing_date': datetime.now().isoformat()
                 }
             )
