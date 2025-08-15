@@ -160,8 +160,8 @@ class base_handler(ABC):
         """
         FAISS 호출 직전 
         """
-        # logger.info(f"[{self.domain}] handler model={config.EMBEDDING_MODEL}, "
-        #             f"vs store embed_fn={type(vectorstore.embedding_function).__name__}")
+        logger.info(f"[{self.domain}] handler model={config.EMBEDDING_MODEL}, "
+                    f"vs store embed_fn={type(vectorstore.embedding_function).__name__}")
 
         
         """
