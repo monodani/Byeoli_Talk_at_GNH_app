@@ -14,6 +14,8 @@ IndexManager 싱글톤: 모든 벡터스토어 중앙 관리
 ✅ API 키 명시적 전달
 ✅ Graceful Degradation 적용
 ✅ 에러 처리 강화
+✅ BM25 dict 객체 올바른 추출 (핵심 수정)
+✅ 문서 추출 방식 개선 (안전한 접근)
 """
 
 import hashlib
@@ -237,7 +239,7 @@ class IndexManager:
 
     def _load_domain(self, domain: str):
         """
-        단일 도메인의 벡터스토어를 로드 (경로 문제 수정)
+        단일 도메인의 벡터스토어를 로드 (수정된 버전)
         """
         meta = self.metadata[domain]
         logger.info(f"🔄 도메인 {domain} 로드 시작...")
@@ -284,60 +286,128 @@ class IndexManager:
                     logger.debug(f"상세 오류:\n{traceback.format_exc()}")
                     meta.vectorstore = None
             
-            # 문서 로드 (FAISS docstore에서)
+            # ✅ 수정: 안전한 문서 추출 방식
             meta.documents = []
             if meta.vectorstore:
                 try:
-                    test_results = meta.vectorstore.similarity_search("test", k=1)
-                    logger.info(f"📄 {domain} FAISS 검색 테스트: {len(test_results)}개 결과")
+                    # 방법 1: similarity_search로 샘플 검색 (가장 안전)
+                    test_results = meta.vectorstore.similarity_search("sample", k=min(10, meta.vectorstore.index.ntotal))
+                    logger.info(f"📄 {domain} FAISS 샘플 검색: {len(test_results)}개 결과")
                     
-                    if hasattr(meta.vectorstore, 'docstore') and hasattr(meta.vectorstore.docstore, '_dict'):
-                        raw_documents = list(meta.vectorstore.docstore._dict.values())
-                        logger.info(f"📄 {domain} docstore에서 {len(raw_documents)}개 문서 발견")
-                        
-                        for i, doc in enumerate(raw_documents):
-                            try:
-                                # docs 배열을 재구성합니다.
-                                meta.documents.append(TextChunk(
-                                    text=doc.page_content,
-                                    metadata=doc.metadata if hasattr(doc, 'metadata') else {},
-                                    source_id=doc.metadata.get('source_id', f'{domain}_{i}') if hasattr(doc, 'metadata') else f'{domain}_{i}',
-                                    chunk_index=i
-                                ))
-                            except Exception as e:
-                                logger.debug(f"청크 {i} 변환 실패: {e}")
-                        
-                        logger.info(f"✅ {domain} 문서 로드: {len(meta.documents)}개")
+                    # 방법 2: docstore 안전한 접근 시도
+                    docstore_docs = []
+                    if hasattr(meta.vectorstore, 'docstore'):
+                        try:
+                            # index_to_docstore_id를 통한 안전한 접근
+                            if hasattr(meta.vectorstore, 'index_to_docstore_id'):
+                                doc_ids = list(meta.vectorstore.index_to_docstore_id.values())
+                                logger.info(f"📄 {domain} docstore ID 개수: {len(doc_ids)}")
+                                
+                                for doc_id in doc_ids[:100]:  # 최대 100개만 로드
+                                    try:
+                                        doc = meta.vectorstore.docstore.search(doc_id)
+                                        if doc and hasattr(doc, 'page_content'):
+                                            docstore_docs.append(doc)
+                                    except:
+                                        continue
+                                        
+                                logger.info(f"📄 {domain} docstore에서 {len(docstore_docs)}개 문서 추출")
+                            
+                            # 방법 3: _dict 접근 (폴백)
+                            elif hasattr(meta.vectorstore.docstore, '_dict'):
+                                raw_documents = list(meta.vectorstore.docstore._dict.values())
+                                docstore_docs = raw_documents
+                                logger.info(f"📄 {domain} _dict에서 {len(docstore_docs)}개 문서 추출")
+                                
+                        except Exception as docstore_error:
+                            logger.debug(f"📄 {domain} docstore 접근 실패: {docstore_error}")
+                    
+                    # TextChunk 변환
+                    all_docs = docstore_docs if docstore_docs else test_results
+                    
+                    for i, doc in enumerate(all_docs[:50]):  # 최대 50개로 제한
+                        try:
+                            # 문서 내용 및 메타데이터 추출
+                            if hasattr(doc, 'page_content'):
+                                text = doc.page_content
+                                metadata = getattr(doc, 'metadata', {}) or {}
+                            else:
+                                text = str(doc)
+                                metadata = {}
+                            
+                            # TextChunk 생성
+                            chunk = TextChunk(
+                                text=text,
+                                metadata=metadata,
+                                source_id=metadata.get('source_id', f'{domain}_{i}'),
+                                chunk_index=i
+                            )
+                            meta.documents.append(chunk)
+                            
+                        except Exception as chunk_error:
+                            logger.debug(f"📄 {domain} 청크 {i} 변환 실패: {chunk_error}")
+                            continue
+                    
+                    logger.info(f"✅ {domain} 문서 로드 완료: {len(meta.documents)}개")
+                    
                 except Exception as doc_error:
                     logger.warning(f"⚠️ {domain} 문서 추출 실패: {doc_error}")
-                    # --- [수정] 문서 추출 실패 시 FAISS 비활성화 ---
-                    meta.vectorstore = None
+                    logger.debug(f"문서 추출 상세 오류:\n{traceback.format_exc()}")
+                    
                     # 폴백: 더미 문서 생성
                     meta.documents = [TextChunk(
-                        text=f"{domain} 도메인 정보",
-                        metadata={'domain': domain},
+                        text=f"{domain} 도메인 정보 (문서 추출 실패)",
+                        metadata={'domain': domain, 'extraction_failed': True},
                         source_id=f'{domain}_dummy',
                         chunk_index=0
                     )]
-            # BM25 로드 (선택적)
+            
+            # ✅ 수정: BM25 올바른 로드 방식
             if meta.bm25_path.exists():
                 try:
                     with open(meta.bm25_path, 'rb') as f:
                         bm25_data = pickle.load(f)
-                        if isinstance(bm25_data, tuple):
+                        
+                        # 🚨 핵심 수정: BM25 객체 타입별 올바른 처리
+                        if isinstance(bm25_data, dict):
+                            # base_loader.py가 저장한 dict 형태에서 실제 BM25 객체 추출
+                            if 'bm25_index' in bm25_data:
+                                meta.bm25 = bm25_data['bm25_index']
+                                logger.info(f"✅ {domain} BM25 dict에서 객체 추출 완료")
+                            else:
+                                logger.warning(f"⚠️ {domain} BM25 dict에 'bm25_index' 키가 없음")
+                                meta.bm25 = None
+                        elif isinstance(bm25_data, tuple):
+                            # 기존 튜플 형태 처리
                             meta.bm25, _ = bm25_data
-                        else:
+                            logger.info(f"✅ {domain} BM25 튜플에서 객체 추출 완료")
+                        elif isinstance(bm25_data, BM25Okapi):
+                            # 직접 BM25 객체인 경우
                             meta.bm25 = bm25_data
-                    logger.info(f"✅ {domain} BM25 로드 완료")
-                except Exception as e:
-                    logger.warning(f"⚠️ {domain} BM25 로드 실패: {e}")
+                            logger.info(f"✅ {domain} BM25 직접 객체 로드 완료")
+                        else:
+                            logger.warning(f"⚠️ {domain} BM25 알 수 없는 형태: {type(bm25_data)}")
+                            meta.bm25 = None
+                            
+                        # BM25 객체 타입 검증
+                        if meta.bm25 and not isinstance(meta.bm25, BM25Okapi):
+                            logger.warning(f"⚠️ {domain} BM25 객체 타입 오류: {type(meta.bm25)}")
+                            meta.bm25 = None
+                        elif meta.bm25:
+                            logger.info(f"✅ {domain} BM25 검증 완료: {type(meta.bm25).__name__}")
+                            
+                except Exception as bm25_error:
+                    logger.warning(f"⚠️ {domain} BM25 로드 실패: {bm25_error}")
+                    logger.debug(f"BM25 로드 상세 오류:\n{traceback.format_exc()}")
                     meta.bm25 = None
+            
             # 상태 업데이트
             meta.last_loaded = datetime.now()
             meta.load_count += 1
             meta.last_hash = meta.get_file_hash()
             elapsed = time.time() - start_time
             logger.info(f"✅ {domain} 전체 로드 완료 ({elapsed:.2f}초)")
+            
         except Exception as e:
             meta.error_count += 1
             logger.error(f"❌ {domain} 로드 치명적 오류: {e}")
@@ -346,15 +416,11 @@ class IndexManager:
             meta.vectorstore = None
             meta.bm25 = None
             meta.documents = [TextChunk(
-                text=f"{domain} 로드 오류",
-                metadata={'error': str(e)},
+                text=f"{domain} 로드 오류: {str(e)}",
+                metadata={'error': str(e), 'domain': domain},
                 source_id=f'{domain}_error',
                 chunk_index=0
             )]
-
-
-
-
 
     def load_all_domains(self):
         """모든 도메인 로드"""
