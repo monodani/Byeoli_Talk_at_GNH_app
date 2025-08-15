@@ -131,6 +131,7 @@ class EvaluationNoticeParser(NoticeParser):
         
         main_chunk = TextChunk(
             text=summary.strip(),
+            source_id=base_metadata['source_id'],
             metadata={**base_metadata, 'chunk_type': 'summary', 'priority': 'high'}
         )
         chunks.append(main_chunk)
@@ -139,6 +140,7 @@ class EvaluationNoticeParser(NoticeParser):
         if parsed_notice.get('submit_method'):
             detail_chunk = TextChunk(
                 text=f"[{title} - 제출방법]\n\n{parsed_notice.get('submit_method')}",
+                source_id=base_metadata['source_id'],
                 metadata={**base_metadata, 'chunk_type': 'details'}
             )
             chunks.append(detail_chunk)
@@ -146,6 +148,7 @@ class EvaluationNoticeParser(NoticeParser):
         # 3. 원문 전체 청크
         full_chunk = TextChunk(
             text=f"[{title} - 원문]\n\n{full_text}",
+            source_id=base_metadata['source_id'],
             metadata={**base_metadata, 'chunk_type': 'full_text'}
         )
         chunks.append(full_chunk)
