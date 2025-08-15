@@ -166,7 +166,7 @@ class base_handler(ABC):
             documents = self._get_documents()
             
             # 사용 가능한 검색 방법 확인
-            faiss_available = (vectorstore is not None and getattr(vectorstore, "embedding_function", None) is not none)
+            faiss_available = (vectorstore is not None and getattr(vectorstore, "embedding_function", None) is not None)
             bm25_available = bm25 is not None and len(documents) > 0
             
             if not faiss_available and not bm25_available:
