@@ -7,6 +7,7 @@
 ✅ 불필요한 별칭 제거
 ✅ 임포트 에러 해결
 ✅ 타입 힌팅 개선
+🔧 추가: FAISS 런타임 차원 검증 로직 (text-embedding-3-large 통일 대응)
 """
 
 import logging
@@ -155,6 +156,66 @@ class base_handler(ABC):
         except Exception as e:
             logger.error(f"❌ {self.domain} 문서 획득 실패: {e}")
             return []
+
+    def _validate_faiss_runtime(self, vectorstore: FAISS) -> bool:
+        """
+        🔧 추가: FAISS 런타임 차원 검증 (text-embedding-3-large 통일 대응)
+        
+        Args:
+            vectorstore: FAISS 벡터스토어
+            
+        Returns:
+            bool: 런타임 사용 가능 여부
+        """
+        try:
+            if not vectorstore:
+                return False
+            
+            # 임베딩 함수 존재 확인
+            embed_fn = getattr(vectorstore, "embedding_function", None)
+            if not embed_fn:
+                logger.warning(f"⚠️ {self.domain} FAISS에 embedding_function 없음")
+                return False
+            
+            # 인덱스 정보 확인
+            if not hasattr(vectorstore, 'index'):
+                logger.warning(f"⚠️ {self.domain} FAISS에 index 속성 없음")
+                return False
+            
+            # 인덱스 크기 확인
+            ntotal = getattr(vectorstore.index, 'ntotal', 0)
+            if ntotal == 0:
+                logger.warning(f"⚠️ {self.domain} FAISS 인덱스가 비어있음 (ntotal=0)")
+                return False
+            
+            # 차원 검증
+            stored_dim = getattr(vectorstore.index, 'd', None)
+            if stored_dim is None:
+                logger.warning(f"⚠️ {self.domain} FAISS 인덱스 차원 정보 없음")
+                return False
+            
+            # 런타임 임베딩 차원 확인
+            try:
+                test_vector = embed_fn.embed_query("test")
+                runtime_dim = len(test_vector)
+                
+                if stored_dim != runtime_dim:
+                    logger.error(f"❌ {self.domain} FAISS 런타임 차원 불일치:")
+                    logger.error(f"   저장된 차원: {stored_dim}")
+                    logger.error(f"   런타임 차원: {runtime_dim} ({config.EMBEDDING_MODEL})")
+                    logger.error(f"   해결방법: {self.domain} 도메인을 {config.EMBEDDING_MODEL}로 재빌드 필요")
+                    return False
+                
+                logger.debug(f"✅ {self.domain} FAISS 런타임 검증 성공: {stored_dim}차원, {ntotal}개 벡터")
+                return True
+                
+            except Exception as embed_error:
+                logger.warning(f"⚠️ {self.domain} 런타임 임베딩 테스트 실패: {embed_error}")
+                return False
+            
+        except Exception as e:
+            logger.warning(f"⚠️ {self.domain} FAISS 런타임 검증 실패: {e}")
+            return False
     
     def _hybrid_search(self, query: str, k: int = 5) -> List[Tuple[TextChunk, float]]:
         """
@@ -165,8 +226,8 @@ class base_handler(ABC):
             bm25 = self._get_bm25()
             documents = self._get_documents()
             
-            # 사용 가능한 검색 방법 확인
-            faiss_available = (vectorstore is not None and getattr(vectorstore, "embedding_function", None) is not None)
+            # 🔧 수정: 강화된 사용 가능성 판정 (차원 검증 포함)
+            faiss_available = vectorstore is not None and self._validate_faiss_runtime(vectorstore)
             bm25_available = bm25 is not None and len(documents) > 0
             
             if not faiss_available and not bm25_available:
@@ -186,8 +247,10 @@ class base_handler(ABC):
                             metadata=doc.metadata
                         )
                         faiss_results.append((text_chunk, 1.0 - score))
+                    logger.debug(f"✅ {self.domain} FAISS 검색 성공: {len(faiss_results)}개 결과")
                 except Exception as e:
-                    logger.warning(f"⚠️ FAISS 검색 실패: {e}")
+                    logger.warning(f"⚠️ {self.domain} FAISS 검색 실패: {e}")
+                    faiss_available = False  # 실패 시 비활성화
             
             # BM25 검색
             bm25_results = []
@@ -201,17 +264,25 @@ class base_handler(ABC):
                     
                     top_k = min(k*2, len(scored_docs))
                     bm25_results = scored_docs[:top_k]
+                    logger.debug(f"✅ {self.domain} BM25 검색 성공: {len(bm25_results)}개 결과")
                 except Exception as e:
-                    logger.warning(f"⚠️ BM25 검색 실패: {e}")
+                    logger.warning(f"⚠️ {self.domain} BM25 검색 실패: {e}")
             
             # RRF 결합
             combined_results = self._rrf_combine(faiss_results, bm25_results, k=k)
             
-            logger.debug(f"🔍 하이브리드 검색 완료: {len(combined_results)}개 결과")
+            # 검색 방법 로깅
+            search_methods = []
+            if faiss_available:
+                search_methods.append("FAISS")
+            if bm25_available:
+                search_methods.append("BM25")
+            
+            logger.info(f"🔍 {self.domain} 하이브리드 검색 완료: {len(combined_results)}개 결과 ({'+'.join(search_methods)})")
             return combined_results
             
         except Exception as e:
-            logger.error(f"❌ 하이브리드 검색 실패: {e}")
+            logger.error(f"❌ {self.domain} 하이브리드 검색 실패: {e}")
             return []
     
     def _rrf_combine(self, faiss_results: List[Tuple[TextChunk, float]], 
@@ -250,7 +321,7 @@ class base_handler(ABC):
             return []
             
         except Exception as e:
-            logger.error(f"❌ RRF 결합 실패: {e}")
+            logger.error(f"❌ {self.domain} RRF 결합 실패: {e}")
             return faiss_results[:k] if faiss_results else bm25_results[:k]
     
     def _calculate_confidence(self, query: str, retrieved_docs: List[Tuple[TextChunk, float]], 
@@ -276,7 +347,7 @@ class base_handler(ABC):
             return min(1.0, max(0.0, confidence))
             
         except Exception as e:
-            logger.warning(f"⚠️ 컨피던스 계산 실패: {e}")
+            logger.warning(f"⚠️ {self.domain} 컨피던스 계산 실패: {e}")
             return 0.5
     
     def _extract_citations(self, retrieved_docs: List[Tuple[TextChunk, float]]) -> List[Citation]:
@@ -299,7 +370,7 @@ class base_handler(ABC):
                 citations.append(citation)
                 
         except Exception as e:
-            logger.warning(f"⚠️ Citation 추출 실패: {e}")
+            logger.warning(f"⚠️ {self.domain} Citation 추출 실패: {e}")
         
         return citations
     
@@ -329,7 +400,7 @@ class base_handler(ABC):
                 yield buffer
                 
         except Exception as e:
-            logger.error(f"❌ 스트리밍 응답 실패: {e}")
+            logger.error(f"❌ {self.domain} 스트리밍 응답 실패: {e}")
             yield f"응답 생성 중 오류가 발생했습니다: {str(e)}"
     
     @abstractmethod
