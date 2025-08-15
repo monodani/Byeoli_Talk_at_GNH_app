@@ -225,7 +225,7 @@ class BaseLoader(ABC):
         """FAISS 벡터스토어 생성 (내부 메서드)"""
         try:
             # 임베딩 모델 초기화
-            embeddings = OpenAIEmbeddings()
+            embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
             
             # 텍스트와 메타데이터 추출
             texts = [chunk.text for chunk in chunks]
@@ -267,7 +267,7 @@ class BaseLoader(ABC):
                 logger.error("FAISS 라이브러리가 설치되지 않음")
                 return None
             
-            embeddings = OpenAIEmbeddings()
+            embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
             vectorstore = FAISS.load_local(
                 folder_path=str(self.vectorstore_dir),
                 embeddings=embeddings,
