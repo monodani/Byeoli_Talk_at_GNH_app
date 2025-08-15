@@ -1,5 +1,4 @@
-# 도메인별 로더 매핑 (동적 구성)
-        self.loaders = {#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 경상남도인재개발원 RAG 챗봇 - 통합 벡터스토어 빌드 스크립트
 
