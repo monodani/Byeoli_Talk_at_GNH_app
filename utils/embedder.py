@@ -102,7 +102,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                 response = self.client.embeddings.create(
                     model=self.model,
                     input=batch,
-                    dimensions=self.dimensions if self.dimensions != 1536 else None
+                    dimensions=self.dimensions if self.dimensions != 3072 else None
                 )
                 
                 batch_embeddings = [data.embedding for data in response.data]
