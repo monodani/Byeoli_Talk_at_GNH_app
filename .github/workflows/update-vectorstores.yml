@@ -24,6 +24,7 @@ on:
 env:
   PYTHONPATH: ${{ github.workspace }}
   PYTHONIOENCODING: utf-8
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_DEV }}
 
 jobs:
   update-vectorstores:
@@ -76,11 +77,9 @@ jobs:
       
       # 6. 벡터스토어 빌드 실행
       - name: 🔨 벡터스토어 빌드 실행
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPEN_API_KEY_DEV }}
         run: |
           echo "::group::벡터스토어 빌드 시작"
-          echo "API 키 확인: ${OPENAI_API_KEY:0:10}..." # 보안상 일부만 출력
+          echo "API 키 환경변수 확인: ${OPENAI_API_KEY:0:10}..." # 보안상 일부만 출력
           python scripts/build_all_vectorstores.py
           echo "::endgroup::"
       
