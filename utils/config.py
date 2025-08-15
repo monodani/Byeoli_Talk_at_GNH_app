@@ -94,7 +94,7 @@ class AppConfig:
     
     # 임베딩 설정
     EMBEDDING_MODEL: str = field(default_factory=lambda: os.getenv("OPENAI_EMBEDDING_MODEL", os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")))
-    EMBEDDING_DIMENSION: int = field(default_factory=lambda: int(os.getenv("EMBEDDING_DIMENSION", "1536")))
+    EMBEDDING_DIMENSION: int = field(default_factory=lambda: int(os.getenv("EMBEDDING_DIMENSION", "3072")))
     
     # 검색 설정
     FAISS_K_DEFAULT: int = field(default_factory=lambda: int(os.getenv("RETRIEVAL_K", os.getenv("FAISS_K_DEFAULT", "5"))))
