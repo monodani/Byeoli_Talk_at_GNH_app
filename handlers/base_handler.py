@@ -20,7 +20,7 @@ from datetime import datetime
 from utils.config import config
 from utils.contracts import QueryRequest, HandlerResponse, Citation
 from utils.textifier import TextChunk
-from utils.index_manager import get_index_manager
+# from utils.index_manager import get_index_manager  # 순환 임포트 방지: 지연 임포트로 변경
 
 # 외부 라이브러리
 import numpy as np
@@ -57,7 +57,8 @@ class base_handler(ABC):
         self.index_name = index_name
         self.confidence_threshold = confidence_threshold
         
-        # IndexManager 싱글톤 참조
+        # IndexManager 싱글톤 참조 (지연 임포트)
+        from utils.index_manager import get_index_manager
         self.index_manager = get_index_manager()
         
         # OpenAI 컴포넌트 초기화
