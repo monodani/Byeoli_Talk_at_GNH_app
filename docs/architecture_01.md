@@ -2,7 +2,7 @@
 
 ## 개요
 
-경상남도인재개발원용 RAG 기반 챗봇으로, 다양한 내부 문서(교육계획, 만족도 조사, 학칙, 공지사항 등)를 기반으로 질의응답 서비스를 제공합니다.
+경상남도인재개발원용 RAG 기반 챗봇으로, 챗봇의 이름은 "벼리(Byeoli)"이며, 다양한 내부 문서(교육계획, 만족도 조사, 학칙, 공지사항 등)를 기반으로 질의응답 서비스를 제공합니다.
 
 **핵심 설계 원칙**: 모든 핸들러 병렬 실행 → chunk 수집 → 통합 LLM 호출
 
@@ -40,8 +40,8 @@ flowchart TD
     
     %% 런타임 엔진 - 새로운 구조
     subgraph RUNTIME["⚡ 런타임 엔진"]
-        R1[IndexManager<br/>싱글톤]
-        R2[CentralOrchestrator<br/>BaseHandler]
+        R1[index_manager<br/>싱글톤]
+        R2[CentralOrchestrator<br/>base_handler]
         R3[병렬 핸들러 실행<br/>All Handlers]
         R4[Chunk 통합 & 중복제거]
         R5[통합 LLM 호출<br/>Single Call]
@@ -93,7 +93,7 @@ flowchart TD
 class ChunkResult:
     chunk: TextChunk           # 텍스트 청크 내용
     confidence: float          # 유사도 점수 (0.0-1.0)
-    domain: str               # 도메인명 (satisfaction, general, etc.)
+    domain: str                # 도메인명 (satisfaction, general, etc.)
     search_method: str = "faiss"  # 검색 방법
     metadata: Dict[str, Any] = field(default_factory=dict)  # 확장 정보
 ```
@@ -102,8 +102,8 @@ class ChunkResult:
 ```python
 metadata = {
     "source_file": "course_satisfaction.csv",
-    "department": "교육운영팀",
-    "contact": "055-248-9800",
+    "department": "인재개발지원과 평가분석담당",
+    "contact": "055-254-2023",
     "rank": 1,
     "search_score": 0.85
 }
@@ -116,11 +116,14 @@ metadata = {
 sequenceDiagram
     participant User as 사용자
     participant UI as Streamlit
-    participant Central as CentralOrchestrator
+    participant Central as base_handler
     participant H1 as satisfaction_handler
     participant H2 as general_handler
     participant H3 as notice_handler
-    participant Index as IndexManager
+    participant H4 as menu_handler
+    participant H5 as cyber_handler
+    participant H6 as publish_handler
+    participant Index as index_manager
     participant LLM as OpenAI LLM
     
     User->>UI: 질문 입력
@@ -142,6 +145,21 @@ sequenceDiagram
         H3->>Index: FAISS 검색
         Index-->>H3: 유사 문서들
         H3-->>Central: List[ChunkResult]
+    and
+        Central->>H4: search_chunks(query)
+        H2->>Index: FAISS 검색
+        Index-->>H2: 유사 문서들
+        H4-->>Central: List[ChunkResult]
+    and
+        Central->>H5: search_chunks(query)
+        H2->>Index: FAISS 검색
+        Index-->>H2: 유사 문서들
+        H5-->>Central: List[ChunkResult]
+    and
+        Central->>H6: search_chunks(query)
+        H2->>Index: FAISS 검색
+        Index-->>H2: 유사 문서들
+        H6-->>Central: List[ChunkResult]
     end
     
     Note over Central: Chunk 통합 & 중복제거
@@ -185,8 +203,8 @@ class SatisfactionHandler:
                 domain="satisfaction",
                 metadata={
                     "source_file": doc.metadata.get("source"),
-                    "department": "교육운영팀",
-                    "contact": "055-248-9800"
+                    "department": "인재개양성과 교육기획담당",
+                    "contact": "055-254-2051"
                 }
             ))
         
@@ -290,16 +308,17 @@ context_by_domain = """
 - **부분 실패 허용**: 일부 핸들러 실패해도 나머지로 계속
 
 ### 응답 시간 목표
-- **Chunk 수집**: ≤ 0.8초 (병렬)
-- **LLM 호출**: ≤ 1.5초
-- **전체 응답**: ≤ 2.5초
-- **첫 토큰**: ≤ 1.2초 (스트리밍)
+- **Chunk 수집**: ≤ 3초 (병렬)
+- **LLM 호출**: ≤ 12초
+- **전체 응답**: ≤ 15초
+- **첫 토큰**: ≤ 1.5초 (스트리밍)
 
 ## 출처 및 연락처 관리
 
 ### 기본 동작
 - 사용자에게 출처를 보여주지 않음
 - 자연스러운 답변만 제공
+- 사용자가 인사를 하거나 감사를 표하면 반갑게 응대를 함
 
 ### 출처 요청 시
 사용자가 "출처가 뭐야?", "담당 부서는?" 등을 물어보면:
@@ -307,9 +326,12 @@ context_by_domain = """
 ```
 해당 정보에 대한 자세한 문의는 다음 담당부서로 연락해 주세요:
 
-📞 교육운영팀: 055-248-9800
-📞 기획조정팀: 055-248-9801  
-📞 사이버교육팀: 055-248-9802
+📞 인재개발지원과 총무담당: 055-254-2011
+📞 인재개발지원과 평가분석담당: 055-254-2021  
+📞 인재양성과 교육기획담당: 055-254-2051  
+📞 인재양성과 교육운영1담당: 055-254-2061
+📞 인재양성과 교육운영2담당: 055-254-2071
+📞 인재양성과 사이버담당: 055-254-2081
 
 더 정확한 정보를 확인해 드릴 수 있습니다.
 ```
@@ -319,7 +341,7 @@ context_by_domain = """
 ### Fallback 조건
 ```python
 if len(unified_chunks) == 0:
-    return "죄송합니다. 관련 정보를 찾을 수 없습니다. 더 구체적으로 질문해 주시거나, 담당 부서(055-248-9800)로 직접 문의해 주세요."
+    return "죄송합니다. 관련 정보를 찾을 수 없습니다. 더 구체적으로 질문해 주시거나, 대표전화(055-254-2051)로 직접 문의해 주세요."
 ```
 
 ## 확장성 고려사항
@@ -342,7 +364,7 @@ if len(unified_chunks) == 0:
 | 파일 | 변경 내용 |
 |------|----------|
 | `utils/router.py` | 🗑️ **완전 삭제** |
-| `handlers/base_handler.py` | CentralOrchestrator로 역할 변경 |
+| `handlers/base_handler.py` | CentralOrchestrator로 역할 변경(파일명/이름은 그대로 유지) |
 | `handlers/*_handler.py` | LLM 호출 제거, `search_chunks()` 메서드만 |
 | `utils/contracts.py` | `ChunkResult` 데이터클래스 추가 |
 | `utils/context_manager.py` | 통합 컨텍스트 관리로 변경 |
