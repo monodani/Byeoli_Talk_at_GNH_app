@@ -102,12 +102,18 @@ class ChunkResult:
 ```python
 metadata = {
     "source_file": "course_satisfaction.csv",
-    "department": "인재개발지원과 평가분석담당",
-    "contact": "055-254-2023",
+    "department": "{부서명} {팀명}",
+    "contact": "{전화번호}",
     "rank": 1,
     "search_score": 0.85
 }
 ```
+- general → 인재양성과 교육기획담당 (055-254-2051)
+- satisfaction → 인재개발지원과 평가분석담당 (055-254-2021)
+- cyber → 인재양성과 사이버담당 (055-254-2081)
+- menu → 인재개발지원과 총무담당 (055-254-20096)
+- 그외 → 경상남도인재개발원 대표번호 (055-254-2051)
+
 
 ## 데이터 플로우
 
@@ -117,12 +123,12 @@ sequenceDiagram
     participant User as 사용자
     participant UI as Streamlit
     participant Central as base_handler
-    participant H1 as satisfaction_handler
-    participant H2 as general_handler
-    participant H3 as notice_handler
-    participant H4 as menu_handler
+    participant H1 as general_handler
+    participant H2 as publish_handler
+    participant H3 as satisfaction_handler
+    participant H4 as cyber_handler
     participant H5 as cyber_handler
-    participant H6 as publish_handler
+    participant H6 as notice_handler
     participant Index as index_manager
     participant LLM as OpenAI LLM
     
@@ -147,17 +153,17 @@ sequenceDiagram
         H3-->>Central: List[ChunkResult]
     and
         Central->>H4: search_chunks(query)
-        H2->>Index: FAISS 검색
+        H4->>Index: FAISS 검색
         Index-->>H2: 유사 문서들
         H4-->>Central: List[ChunkResult]
     and
         Central->>H5: search_chunks(query)
-        H2->>Index: FAISS 검색
+        H5->>Index: FAISS 검색
         Index-->>H2: 유사 문서들
         H5-->>Central: List[ChunkResult]
     and
         Central->>H6: search_chunks(query)
-        H2->>Index: FAISS 검색
+        H6->>Index: FAISS 검색
         Index-->>H2: 유사 문서들
         H6-->>Central: List[ChunkResult]
     end
@@ -203,8 +209,8 @@ class SatisfactionHandler:
                 domain="satisfaction",
                 metadata={
                     "source_file": doc.metadata.get("source"),
-                    "department": "인재개양성과 교육기획담당",
-                    "contact": "055-254-2051"
+                    "department": "인재개발지원과 평가분석담당",
+                    "contact": "055-254-2021"
                 }
             ))
         
