@@ -111,8 +111,9 @@ metadata = {
 - general → 인재양성과 교육기획담당 (055-254-2051)
 - satisfaction → 인재개발지원과 평가분석담당 (055-254-2021)
 - cyber → 인재양성과 사이버담당 (055-254-2081)
-- menu → 인재개발지원과 총무담당 (055-254-20096)
-- 그외 → 경상남도인재개발원 대표번호 (055-254-2051)
+- menu → 인재개발지원과 총무담당 (055-254-2096)
+- notice → 경상남도인재개발원 대표번호 (055-254-2051)
+- publish → 경상남도인재개발원 대표번호 (055-254-2051)
 
 
 ## 데이터 플로우
@@ -127,7 +128,7 @@ sequenceDiagram
     participant H2 as publish_handler
     participant H3 as satisfaction_handler
     participant H4 as cyber_handler
-    participant H5 as cyber_handler
+    participant H5 as menu_handler
     participant H6 as notice_handler
     participant Index as index_manager
     participant LLM as OpenAI LLM
@@ -154,7 +155,7 @@ sequenceDiagram
     and
         Central->>H4: search_chunks(query)
         H4->>Index: FAISS 검색
-        Index-->>H2: 유사 문서들
+        Index-->>H4: 유사 문서들
         H4-->>Central: List[ChunkResult]
     and
         Central->>H5: search_chunks(query)
@@ -267,8 +268,8 @@ CONFIDENCE_THRESHOLDS = {
 ```python
 def _deduplicate_chunks(self, all_chunks: List[ChunkResult]) -> List[ChunkResult]:
     # 텍스트 유사도 기반 중복 감지
-    # 같은 내용이면 더 높은 confidence만 유지
-    # 최종 상위 10-15개 chunk만 선택
+    # 같은 내용이면(difflib.SequenceMatcher로 0.8 이상 유사도면 중복으로 간주) 더 높은 confidence만 유지
+    # 최종 상위 5-8개 chunk만 선택
 ```
 
 ## 프롬프트 구조
@@ -347,7 +348,10 @@ context_by_domain = """
 ### Fallback 조건
 ```python
 if len(unified_chunks) == 0:
-    return "죄송합니다. 관련 정보를 찾을 수 없습니다. 더 구체적으로 질문해 주시거나, 대표전화(055-254-2051)로 직접 문의해 주세요."
+    return "죄송합니다. 요청하신 내용과 관련된 정보를 찾을 수 없습니다. 더 구체적으로 질문해 주시거나, 아래의 방법으로 문의를 하셔도 바로 도움을 드릴 수 있씁니다.
+- 홈페이지 방문 : https://www.gyeongnam.go.kr/hrd
+- 경상남도인재개발원 대표전화 : 055-254-2051 
+- 경상남도인재개발원 주소 : 경상남도 진주시 월아산로 2026 경상남도청 서부청사 4~6층 (우 52732)
 ```
 
 ## 확장성 고려사항
