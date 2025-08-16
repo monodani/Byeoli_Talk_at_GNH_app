@@ -41,9 +41,9 @@ flowchart TD
     %% 런타임 엔진 - 새로운 구조
     subgraph RUNTIME["⚡ 런타임 엔진"]
         R1[index_manager<br/>싱글톤]
-        R2[base_handler<br/>"(CentralOrchestrator)"]
+        R2[base_handler<br/>CentralOrchestrator"]
         R3[병렬 핸들러 실행<br/>All Handlers]
-        R4[base_handler<br/>"(Chunk 통합 & 중복제거)"]
+        R4[base_handler<br/>"Chunk 통합 & 중복제거"]
         R5[통합 LLM 호출<br/>Single Call]
     end
     
